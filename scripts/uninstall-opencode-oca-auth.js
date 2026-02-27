@@ -13,7 +13,8 @@ const DEFAULT_CONFIG = join(homedir(), ".config", "opencode", "opencode.json")
 
 const PLUGIN = "opencode-oca-auth"
 const DEFAULT_OCA_MODEL_ID = "gpt-5.3-codex"
-const PREVIOUS_DEFAULT_OCA_MODEL_ID = "gpt-oss-120b"
+const PREVIOUS_DEFAULT_OCA_MODEL_ID = "gpt-5-codex"
+const LEGACY_PREVIOUS_DEFAULT_OCA_MODEL_ID = "gpt-oss-120b"
 const LEGACY_OCA_MODEL_ID = "oca-default"
 
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
@@ -34,6 +35,7 @@ const cleanProvider = (config, key) => {
       if (!isObject(x)) return true
       return x.id !== DEFAULT_OCA_MODEL_ID
         && x.id !== PREVIOUS_DEFAULT_OCA_MODEL_ID
+        && x.id !== LEGACY_PREVIOUS_DEFAULT_OCA_MODEL_ID
         && x.id !== LEGACY_OCA_MODEL_ID
     })
     if (!oca.models.length) delete oca.models
@@ -41,6 +43,7 @@ const cleanProvider = (config, key) => {
   if (isObject(oca.models)) {
     delete oca.models[DEFAULT_OCA_MODEL_ID]
     delete oca.models[PREVIOUS_DEFAULT_OCA_MODEL_ID]
+    delete oca.models[LEGACY_PREVIOUS_DEFAULT_OCA_MODEL_ID]
     delete oca.models[LEGACY_OCA_MODEL_ID]
     if (!Object.keys(oca.models).length) delete oca.models
   }

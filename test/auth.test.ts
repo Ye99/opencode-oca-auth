@@ -264,6 +264,79 @@ test("loader upgrades empty existing model entries", async () => {
   expect(codex.api.url).toBe("https://oca.example/litellm")
 })
 
+test("loader refreshes discovered metadata for non-empty existing entries", async () => {
+  delete process.env.OCA_BASE_URL
+  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+
+  globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
+    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+      return Response.json({
+        data: [
+          {
+            litellm_params: { model: "oca/gpt-5.3-codex" },
+            model_info: { is_reasoning_model: true, supported_api_list: ["RESPONSES"] },
+          },
+        ],
+      })
+    }
+    return new Response("nope", { status: 404 })
+  }) as unknown as typeof fetch
+
+  const input = {
+    client: {
+      auth: {
+        set: async () => ({}),
+      },
+    },
+  } as unknown as Parameters<typeof plugin>[0]
+  const hooks = await plugin(input)
+  const loader = hooks.auth?.loader
+  expect(loader).toBeDefined()
+
+  if (!loader) throw new Error("missing loader")
+
+  const provider = {
+    id: "oca",
+    name: "Oracle Code Assist",
+    source: "custom",
+    env: ["OCA_API_KEY"],
+    options: {},
+    models: {
+      "gpt-5.3-codex": {
+        name: "Custom Codex",
+        api: {
+          id: "gpt-5.3-codex",
+          url: "https://old.example/litellm",
+          npm: "@ai-sdk/openai-compatible",
+        },
+        capabilities: {
+          reasoning: false,
+        },
+        custom: "keep-me",
+      },
+    },
+  }
+
+  await loader(
+    async () => ({
+      type: "oauth",
+      refresh: "refresh-token",
+      access: "access-token",
+      expires: Date.now() + 60_000,
+    }),
+    provider as never,
+  )
+
+  const codex = (provider.models as Record<string, any>)["gpt-5.3-codex"]
+  expect(codex.name).toBe("Custom Codex")
+  expect(codex.providerID).toBe("oca")
+  expect(codex.api.id).toBe("gpt-5.3-codex")
+  expect(codex.api.npm).toBe("@ai-sdk/openai")
+  expect(codex.api.url).toBe("https://oca.example/litellm")
+  expect(codex.capabilities.reasoning).toBe(true)
+  expect(codex.custom).toBe("keep-me")
+})
+
 test("loader adds bearer authorization for oauth auth", async () => {
   let init: RequestInit | undefined
   globalThis.fetch = (async (_request: RequestInfo | URL, value?: RequestInit) => {
@@ -475,4 +548,114 @@ test("expired oauth token refreshes and persists before request", async () => {
   const requestCall = calls.at(-1)
   const headers = new Headers(requestCall?.init?.headers)
   expect(headers.get("Authorization")).toBe("Bearer fresh-access")
+})
+
+test("loader reuses refreshed oauth token when auth store is stale", async () => {
+  let tokenRefreshes = 0
+  let requestInit: RequestInit | undefined
+
+  globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    const value = String(url)
+    if (value.includes("/oauth2/v1/token")) {
+      tokenRefreshes += 1
+      if (tokenRefreshes > 1) {
+        return Response.json({ error: "invalid_grant" }, { status: 400 })
+      }
+      return Response.json({
+        access_token: "fresh-access",
+        refresh_token: "fresh-refresh",
+        expires_in: 3600,
+        token_type: "Bearer",
+      })
+    }
+
+    if (value === "https://api.example.com/v1") {
+      requestInit = init
+      return new Response("ok", { status: 200 })
+    }
+
+    return new Response("nope", { status: 404 })
+  }) as unknown as typeof fetch
+
+  const staleAuth = {
+    type: "oauth" as const,
+    refresh: "old-refresh",
+    access: "old-access",
+    expires: Date.now() - 1000,
+    enterpriseUrl: "https://custom-idcs.example.com",
+    accountId: "custom-client-id",
+  }
+
+  const saved: Array<unknown> = []
+  const input = {
+    client: {
+      auth: {
+        set: async (value: unknown) => {
+          saved.push(value)
+          return {}
+        },
+      },
+    },
+  } as unknown as Parameters<typeof plugin>[0]
+  const hooks = await plugin(input)
+  const loader = hooks.auth?.loader
+  expect(loader).toBeDefined()
+
+  if (!loader) throw new Error("missing loader")
+
+  const loaded = await loader(async () => ({ ...staleAuth }), {} as never)
+  const fn = loaded.fetch as typeof fetch
+  await fn("https://api.example.com/v1")
+
+  expect(tokenRefreshes).toBe(1)
+  expect(saved.length).toBe(1)
+  const headers = new Headers(requestInit?.headers)
+  expect(headers.get("Authorization")).toBe("Bearer fresh-access")
+})
+
+test("expired oauth token refresh failure includes relogin hint", async () => {
+  globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
+    if (String(url).includes("/oauth2/v1/token")) {
+      return Response.json(
+        {
+          error: "invalid_grant",
+          error_description: "Refresh token expired",
+        },
+        { status: 400 },
+      )
+    }
+    return new Response("nope", { status: 404 })
+  }) as unknown as typeof fetch
+
+  const input = {
+    client: {
+      auth: {
+        set: async () => ({}),
+      },
+    },
+  } as unknown as Parameters<typeof plugin>[0]
+  const hooks = await plugin(input)
+  const loader = hooks.auth?.loader
+  expect(loader).toBeDefined()
+
+  if (!loader) throw new Error("missing loader")
+
+  try {
+    await loader(
+      async () => ({
+        type: "oauth",
+        refresh: "bad-refresh",
+        access: "old-access",
+        expires: Date.now() - 1000,
+        enterpriseUrl: "https://custom-idcs.example.com",
+        accountId: "custom-client-id",
+      }),
+      {} as never,
+    )
+    throw new Error("expected loader to fail")
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    expect(message).toContain("invalid_grant")
+    expect(message).toContain("opencode auth login oca")
+  }
 })

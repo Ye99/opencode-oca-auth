@@ -34,9 +34,19 @@ type OAuthAuth = Extract<Auth, { type: "oauth" }> & { accountId?: string }
 
 let discoveredBaseUrl: string | undefined
 let discoveredModels: DiscoveredModel[] | undefined
+const OCA_RELOGIN_HINT = "Run `opencode auth login oca` to refresh credentials."
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
+
+const toObject = (value: unknown): Record<string, unknown> =>
+  isObject(value) ? value : {}
+
+const errorMessage = (value: unknown) =>
+  value instanceof Error ? value.message : String(value)
+
+const withReloginHint = (message: string) =>
+  message.includes("opencode auth login oca") ? message : `${message}. ${OCA_RELOGIN_HINT}`
 
 export function resetDiscoveryCache() {
   discoveredBaseUrl = undefined
@@ -122,31 +132,63 @@ function upsertModels(provider: Provider | undefined, baseURL: string) {
   if (!provider.models) return
   for (const model of discoveredModels ?? []) {
     const id = model.id
-    const existing = provider.models[id]
-    if (isObject(existing) && Object.keys(existing).length > 0) continue
+    const existing = isObject(provider.models[id])
+      ? provider.models[id]
+      : {}
+    const existingApi = toObject(existing.api)
+    const existingCapabilities = toObject(existing.capabilities)
 
     provider.models[id] = {
+      ...existing,
       id,
       providerID: "oca",
-      name: id,
+      name: typeof existing.name === "string" && existing.name
+        ? existing.name
+        : id,
       api: {
+        ...existingApi,
         id,
         url: baseURL,
         npm: model.npm,
       },
-      status: "active",
+      status: typeof existing.status === "string"
+        ? existing.status
+        : "active",
       capabilities: {
+        ...existingCapabilities,
         temperature: true,
         reasoning: model.reasoning,
         attachment: true,
         toolcall: true,
-        input: { text: true, audio: false, image: true, video: false, pdf: true },
-        output: { text: true, audio: false, image: false, video: false, pdf: false },
+        input: {
+          text: true,
+          audio: false,
+          image: true,
+          video: false,
+          pdf: true,
+          ...toObject(existingCapabilities.input),
+        },
+        output: {
+          text: true,
+          audio: false,
+          image: false,
+          video: false,
+          pdf: false,
+          ...toObject(existingCapabilities.output),
+        },
       },
-      cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-      limit: { context: 128_000, output: 16_384 },
-      options: {},
-      headers: {},
+      cost: isObject(existing.cost)
+        ? existing.cost
+        : { input: 0, output: 0, cache: { read: 0, write: 0 } },
+      limit: isObject(existing.limit)
+        ? existing.limit
+        : { context: 128_000, output: 16_384 },
+      options: isObject(existing.options)
+        ? existing.options
+        : {},
+      headers: isObject(existing.headers)
+        ? existing.headers
+        : {},
     }
   }
 }
@@ -185,9 +227,17 @@ async function save(input: PluginInput, previous: OAuthAuth, body: { access_toke
 }
 
 async function refresh(input: PluginInput, auth: OAuthAuth) {
+  if (!auth.refresh) {
+    throw new Error(withReloginHint("OCA OAuth session is missing a refresh token"))
+  }
+
   const cfg = oauthConfig(auth)
-  const tokens = await refreshAccessToken(cfg.idcsUrl, cfg.clientId, auth.refresh)
-  return save(input, auth, tokens)
+  try {
+    const tokens = await refreshAccessToken(cfg.idcsUrl, cfg.clientId, auth.refresh)
+    return save(input, auth, tokens)
+  } catch (error) {
+    throw new Error(withReloginHint(errorMessage(error)))
+  }
 }
 
 export function authLoader(input: PluginInput) {
@@ -204,24 +254,49 @@ export function authLoader(input: PluginInput) {
       return { baseURL: url }
     }
 
-    const valid = auth.access && auth.expires > Date.now()
-    const current = valid ? auth : await refresh(input, auth)
-    if (!valid) {
-      auth.refresh = current.refresh
-      auth.access = current.access
-      auth.expires = current.expires
+    const validToken = (value: OAuthAuth | undefined) =>
+      Boolean(value?.access) && value.expires > Date.now()
+    const newest = (a: OAuthAuth | undefined, b: OAuthAuth | undefined) => {
+      if (!a) return b
+      if (!b) return a
+      return (b.expires ?? 0) > (a.expires ?? 0) ? b : a
     }
+
+    let cached: OAuthAuth = { ...auth }
+    let refreshing: Promise<OAuthAuth> | undefined
+    const ensureFresh = async (value?: OAuthAuth): Promise<OAuthAuth> => {
+      const candidate = newest(cached, value)
+      if (validToken(candidate)) {
+        cached = { ...candidate }
+        return cached
+      }
+
+      if (!refreshing) {
+        const source = candidate ?? cached
+        refreshing = refresh(input, source)
+          .then((next) => {
+            cached = { ...next }
+            return cached
+          })
+          .finally(() => {
+            refreshing = undefined
+          })
+      }
+
+      return refreshing as Promise<OAuthAuth>
+    }
+
+    const current = await ensureFresh(auth)
     const url = await resolveBaseUrl(current)
 
     return {
       apiKey: OAUTH_DUMMY_KEY,
       ...(url ? { baseURL: url } : {}),
       fetch: async (request: RequestInfo | URL, init?: RequestInit) => {
-        const current = await getAuth()
-        if (current.type !== "oauth") return fetch(request, init)
+        const latest = await getAuth()
+        if (latest.type !== "oauth") return fetch(request, init)
 
-        const valid = current.access && current.expires > Date.now()
-        const next = valid ? current : await refresh(input, current)
+        const next = await ensureFresh(latest)
 
         const headers = new Headers(init?.headers)
         headers.set("Authorization", `Bearer ${next.access}`)

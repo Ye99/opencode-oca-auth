@@ -39,6 +39,14 @@ opencode models
 
 Select an `oca:*` model and run prompts normally.
 
+To confirm the default OCA model works after setup, run:
+
+```bash
+opencode -m oca/gpt-5.3-codex run "Reply with: ok"
+```
+
+Expected result: the model replies with `ok`.
+
 ## OCA OAuth defaults
 
 The plugin includes public default OAuth values:

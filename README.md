@@ -9,20 +9,21 @@ Standalone OpenCode plugin for OCA authentication and model wiring.
 ```bash
 git clone <this-repo>
 cd opencode-oca-auth
-npm install -g .
-opencode-oca-auth-install
+node ./scripts/install-opencode-oca-auth.js ~/.config/opencode/opencode.json
 ```
 
 ### Development (live edits)
 
-Use `npm link` so changes to the source are picked up immediately without reinstalling:
+Use `npm link` if you want helper commands in your PATH, then run the installer script directly:
 
 ```bash
 git clone <this-repo>
 cd opencode-oca-auth
 npm link
-opencode-oca-auth-install
+node ./scripts/install-opencode-oca-auth.js ~/.config/opencode/opencode.json
 ```
+
+Run the installer as its own command. Do not append other commands to the same line.
 
 The installer adds:
 
@@ -65,7 +66,7 @@ Avoid committing secret values (for example access tokens or API keys).
 ## Uninstall
 
 ```bash
-opencode-oca-auth-uninstall
+node ./scripts/uninstall-opencode-oca-auth.js ~/.config/opencode/opencode.json
 ```
 
 This removes the plugin entry and the default OCA model entry.

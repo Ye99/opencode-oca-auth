@@ -1,18 +1,41 @@
 #!/usr/bin/env node
 
+import { realpathSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
+const MODULE_PATH = fileURLToPath(import.meta.url)
+const __dirname = dirname(MODULE_PATH)
 const PACKAGE_ROOT = resolve(__dirname, "..")
 const DEFAULT_CONFIG = join(homedir(), ".config", "opencode", "opencode.json")
 
 const PLUGIN = "opencode-oca-auth"
 
 export const DEFAULT_OCA_MODEL_ID = "gpt-5.3-codex"
-export const DEFAULT_OCA_MODEL = {}
+export const DEFAULT_OCA_MODEL = {
+  id: DEFAULT_OCA_MODEL_ID,
+  providerID: "oca",
+  name: DEFAULT_OCA_MODEL_ID,
+  api: {
+    id: DEFAULT_OCA_MODEL_ID,
+    npm: "@ai-sdk/openai",
+  },
+  status: "active",
+  capabilities: {
+    temperature: true,
+    reasoning: true,
+    attachment: true,
+    toolcall: true,
+    input: { text: true, audio: false, image: true, video: false, pdf: true },
+    output: { text: true, audio: false, image: false, video: false, pdf: false },
+  },
+  cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+  limit: { context: 128_000, output: 16_384 },
+  options: {},
+  headers: {},
+}
 
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
 
@@ -62,11 +85,22 @@ export const installConfig = (input, pluginId = PLUGIN) => {
   return config
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+const isMain = (() => {
+  const entry = process.argv[1]
+  if (!entry) return false
+  try {
+    return realpathSync(entry) === realpathSync(MODULE_PATH)
+  }
+  catch {
+    return false
+  }
+})()
+
+if (isMain) {
   const file = process.argv[2] ?? DEFAULT_CONFIG
   const text = await readFile(file, "utf8").catch(() => "{}")
   const current = JSON.parse(text || "{}")
-  const pluginId = `file://${PACKAGE_ROOT}`
+  const pluginId = pathToFileURL(PACKAGE_ROOT).href
   const next = installConfig(current, pluginId)
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8")

@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
+import { realpathSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
+const MODULE_PATH = fileURLToPath(import.meta.url)
+const __dirname = dirname(MODULE_PATH)
 const PACKAGE_ROOT = resolve(__dirname, "..")
 const DEFAULT_CONFIG = join(homedir(), ".config", "opencode", "opencode.json")
 
@@ -64,11 +66,22 @@ export const uninstallConfig = (input, pluginId = PLUGIN) => {
   return config
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+const isMain = (() => {
+  const entry = process.argv[1]
+  if (!entry) return false
+  try {
+    return realpathSync(entry) === realpathSync(MODULE_PATH)
+  }
+  catch {
+    return false
+  }
+})()
+
+if (isMain) {
   const file = process.argv[2] ?? DEFAULT_CONFIG
   const text = await readFile(file, "utf8").catch(() => "{}")
   const current = JSON.parse(text || "{}")
-  const pluginId = `file://${PACKAGE_ROOT}`
+  const pluginId = pathToFileURL(PACKAGE_ROOT).href
   const next = uninstallConfig(current, pluginId)
   await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8")
   console.log(`Updated ${file}`)

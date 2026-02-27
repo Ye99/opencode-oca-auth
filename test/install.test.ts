@@ -21,8 +21,10 @@ test("install adds plugin and oca model for modern config", () => {
 test("install adds latest codex default and not legacy default", () => {
   const next = installConfig(modern)
   const models = (next.provider?.oca?.models ?? {}) as Record<string, unknown>
+  const codex = (models["gpt-5.3-codex"] ?? {}) as { api?: { npm?: string } }
 
   expect(models["gpt-5.3-codex"]).toBeDefined()
+  expect(codex.api?.npm).toBe("@ai-sdk/openai")
   expect(models["gpt-oss-120b"]).toBeUndefined()
 })
 

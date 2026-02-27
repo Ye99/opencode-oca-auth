@@ -27,7 +27,7 @@ Run the installer as its own command. Do not append other commands to the same l
 
 The installer adds:
 
-- `opencode-oca-auth` to your OpenCode plugin list
+- this repository as an OpenCode plugin entry
 - `provider.oca.models.gpt-5.3-codex` to your OpenCode config
 
 ## Login and use OCA models

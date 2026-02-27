@@ -9,15 +9,38 @@ const DEFAULT_OCA_BASE_URLS = [
   "https://code-internal.aiservice.us-chicago-1.oci.oraclecloud.com/20250206/app/litellm",
   "https://code.aiservice.us-chicago-1.oci.oraclecloud.com/20250206/app/litellm",
 ]
+const MODEL_DISCOVERY_PATHS = ["/models", "/v1/models", "/v1/model/info"] as const
+
+type DiscoveredModel = {
+  id: string
+  reasoning: boolean
+  npm: "@ai-sdk/openai" | "@ai-sdk/openai-compatible"
+}
+
+type OcaModelsPayload = {
+  data?: Array<{
+    id?: string
+    litellm_params?: {
+      model?: string
+    }
+    model_info?: {
+      is_reasoning_model?: boolean
+      supported_api_list?: string[]
+    }
+  }>
+}
 
 type OAuthAuth = Extract<Auth, { type: "oauth" }> & { accountId?: string }
 
 let discoveredBaseUrl: string | undefined
-let discoveredModelIds: string[] | undefined
+let discoveredModels: DiscoveredModel[] | undefined
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
 
 export function resetDiscoveryCache() {
   discoveredBaseUrl = undefined
-  discoveredModelIds = undefined
+  discoveredModels = undefined
 }
 
 function baseUrl() {
@@ -38,25 +61,48 @@ async function discoverBaseUrl(token: string) {
   if (discoveredBaseUrl) return discoveredBaseUrl
 
   for (const baseURL of baseUrls()) {
-    const response = await fetch(`${baseURL.replace(/\/+$/, "")}/models`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      signal: AbortSignal.timeout(10_000),
-    }).catch(() => undefined)
-    if (!response?.ok) continue
-    const type = response.headers.get("content-type") ?? ""
-    const body = (type.includes("application/json")
-      ? await response.json()
-      : {}) as { data?: Array<{ id?: string }> }
-    discoveredModelIds = (body.data ?? []).flatMap((item) => {
-      if (!item.id) return []
-      const id = item.id.startsWith("oca/") ? item.id.slice(4) : item.id
-      if (!id) return []
-      return [id]
-    })
-    discoveredBaseUrl = baseURL
-    return baseURL
+    for (const suffix of MODEL_DISCOVERY_PATHS) {
+      const response = await fetch(`${baseURL.replace(/\/+$/, "")}${suffix}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        signal: AbortSignal.timeout(10_000),
+      }).catch(() => undefined)
+      if (!response?.ok) continue
+
+      const type = response.headers.get("content-type") ?? ""
+      const body = (type.includes("application/json")
+        ? await response.json()
+        : {}) as OcaModelsPayload
+
+      const models: Record<string, DiscoveredModel> = {}
+      for (const item of body.data ?? []) {
+        const raw = item.id ?? item.litellm_params?.model
+        if (!raw) continue
+        const id = raw.startsWith("oca/") ? raw.slice(4) : raw
+        if (!id) continue
+
+        const supportedApis = Array.isArray(item.model_info?.supported_api_list)
+          ? item.model_info.supported_api_list
+          : []
+        const supportsResponses = supportedApis.some(
+          (api) => String(api).toLowerCase() === "responses",
+        )
+        const npm = supportsResponses || id.includes("gpt-5") || id.includes("codex")
+          ? "@ai-sdk/openai"
+          : "@ai-sdk/openai-compatible"
+
+        models[id] = {
+          id,
+          reasoning: item.model_info?.is_reasoning_model ?? reasoning(id),
+          npm,
+        }
+      }
+
+      discoveredModels = Object.values(models)
+      discoveredBaseUrl = baseURL
+      return baseURL
+    }
   }
 }
 
@@ -74,8 +120,11 @@ function reasoning(id: string) {
 function upsertModels(provider: Provider | undefined, baseURL: string) {
   if (!provider) return
   if (!provider.models) return
-  for (const id of discoveredModelIds ?? []) {
-    if (provider.models[id]) continue
+  for (const model of discoveredModels ?? []) {
+    const id = model.id
+    const existing = provider.models[id]
+    if (isObject(existing) && Object.keys(existing).length > 0) continue
+
     provider.models[id] = {
       id,
       providerID: "oca",
@@ -83,12 +132,12 @@ function upsertModels(provider: Provider | undefined, baseURL: string) {
       api: {
         id,
         url: baseURL,
-        npm: id.includes("gpt-5") || id.includes("codex") ? "@ai-sdk/openai" : "@ai-sdk/openai-compatible",
+        npm: model.npm,
       },
       status: "active",
       capabilities: {
         temperature: true,
-        reasoning: reasoning(id),
+        reasoning: model.reasoning,
         attachment: true,
         toolcall: true,
         input: { text: true, audio: false, image: true, video: false, pdf: true },

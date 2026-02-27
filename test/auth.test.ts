@@ -145,6 +145,125 @@ test("loader populates provider models from oca models endpoint", async () => {
   expect(Object.keys(provider.models).sort()).toEqual(["gpt-5", "gpt-oss-120b"])
 })
 
+test("loader falls back to v1/model/info discovery endpoint", async () => {
+  delete process.env.OCA_BASE_URL
+  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+
+  const calls: string[] = []
+  globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
+    const value = String(url)
+    calls.push(value)
+    if (value === "https://oca.example/litellm/v1/model/info") {
+      return Response.json({
+        data: [
+          {
+            litellm_params: { model: "oca/gpt-5.3-codex" },
+            model_info: { is_reasoning_model: true, supported_api_list: ["RESPONSES"] },
+          },
+        ],
+      })
+    }
+    return new Response("nope", { status: 404 })
+  }) as unknown as typeof fetch
+
+  const input = {
+    client: {
+      auth: {
+        set: async () => ({}),
+      },
+    },
+  } as unknown as Parameters<typeof plugin>[0]
+  const hooks = await plugin(input)
+  const loader = hooks.auth?.loader
+  expect(loader).toBeDefined()
+
+  if (!loader) throw new Error("missing loader")
+
+  const provider = {
+    id: "oca",
+    name: "Oracle Code Assist",
+    source: "custom",
+    env: ["OCA_API_KEY"],
+    options: {},
+    models: {},
+  }
+
+  const loaded = await loader(
+    async () => ({
+      type: "oauth",
+      refresh: "refresh-token",
+      access: "access-token",
+      expires: Date.now() + 60_000,
+    }),
+    provider as never,
+  )
+
+  expect(loaded.baseURL).toBe("https://oca.example/litellm")
+  expect(calls).toEqual([
+    "https://oca.example/litellm/models",
+    "https://oca.example/litellm/v1/models",
+    "https://oca.example/litellm/v1/model/info",
+  ])
+  expect((provider.models as Record<string, any>)["gpt-5.3-codex"].api.npm).toBe("@ai-sdk/openai")
+})
+
+test("loader upgrades empty existing model entries", async () => {
+  delete process.env.OCA_BASE_URL
+  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+
+  globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
+    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+      return Response.json({
+        data: [
+          {
+            litellm_params: { model: "oca/gpt-5.3-codex" },
+            model_info: { supported_api_list: ["RESPONSES"] },
+          },
+        ],
+      })
+    }
+    return new Response("nope", { status: 404 })
+  }) as unknown as typeof fetch
+
+  const input = {
+    client: {
+      auth: {
+        set: async () => ({}),
+      },
+    },
+  } as unknown as Parameters<typeof plugin>[0]
+  const hooks = await plugin(input)
+  const loader = hooks.auth?.loader
+  expect(loader).toBeDefined()
+
+  if (!loader) throw new Error("missing loader")
+
+  const provider = {
+    id: "oca",
+    name: "Oracle Code Assist",
+    source: "custom",
+    env: ["OCA_API_KEY"],
+    options: {},
+    models: {
+      "gpt-5.3-codex": {},
+    },
+  }
+
+  await loader(
+    async () => ({
+      type: "oauth",
+      refresh: "refresh-token",
+      access: "access-token",
+      expires: Date.now() + 60_000,
+    }),
+    provider as never,
+  )
+
+  const codex = (provider.models as Record<string, any>)["gpt-5.3-codex"]
+  expect(codex.api.npm).toBe("@ai-sdk/openai")
+  expect(codex.api.url).toBe("https://oca.example/litellm")
+})
+
 test("loader adds bearer authorization for oauth auth", async () => {
   let init: RequestInit | undefined
   globalThis.fetch = (async (_request: RequestInfo | URL, value?: RequestInit) => {

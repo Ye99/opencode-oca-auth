@@ -18,13 +18,13 @@ test("install adds plugin and oca model for modern config", () => {
   expect(models[DEFAULT_OCA_MODEL_ID]).toBeDefined()
 })
 
-test("install adds latest codex default and not legacy default", () => {
+test("install adds stable codex default and not older defaults", () => {
   const next = installConfig(modern)
   const models = (next.provider?.oca?.models ?? {}) as Record<string, unknown>
-  const codex = (models["gpt-5.3-codex"] ?? {}) as { api?: { npm?: string } }
 
   expect(models["gpt-5.3-codex"]).toBeDefined()
-  expect(codex.api?.npm).toBe("@ai-sdk/openai")
+  expect(models["gpt-5.3-codex"]).toEqual({})
+  expect(models["gpt-5-codex"]).toBeUndefined()
   expect(models["gpt-oss-120b"]).toBeUndefined()
 })
 
@@ -121,12 +121,14 @@ test("uninstall removes empty array-based oca provider", () => {
   expect(next.provider?.oca).toBeUndefined()
 })
 
-test("uninstall removes previous default model id", () => {
+test("uninstall removes previous default model ids", () => {
   const input = {
     plugin: ["opencode-oca-auth"],
     provider: {
       oca: {
         models: [
+          { id: "gpt-5.3-codex", name: "Current Default" },
+          { id: "gpt-5-codex", name: "Previous Default" },
           { id: "gpt-oss-120b", name: "Legacy Default" },
           { id: "custom", name: "Custom" },
         ],
@@ -138,4 +140,25 @@ test("uninstall removes previous default model id", () => {
   const models = (next.provider?.oca?.models ?? []) as Array<{ id?: string; name?: string }>
 
   expect(models).toEqual([{ id: "custom", name: "Custom" }])
+})
+
+test("uninstall removes previous default model ids from object model maps", () => {
+  const input = {
+    plugin: ["opencode-oca-auth"],
+    provider: {
+      oca: {
+        models: {
+          "gpt-5.3-codex": { name: "Current Default" },
+          "gpt-5-codex": { name: "Previous Default" },
+          "gpt-oss-120b": { name: "Legacy Default" },
+          custom: { name: "Custom" },
+        },
+      },
+    },
+  }
+
+  const next = uninstallConfig(input)
+  const models = (next.provider?.oca?.models ?? {}) as Record<string, unknown>
+
+  expect(Object.keys(models)).toEqual(["custom"])
 })

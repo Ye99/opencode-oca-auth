@@ -35,3 +35,15 @@ test("oauth config reads values from .env", async () => {
     clientId: "env-client",
   })
 })
+
+test("oauth config trims trailing slash in enterprise URL", () => {
+  expect(
+    oauthConfig({
+      enterpriseUrl: "https://idcs.example.com///",
+      accountId: "client-123",
+    }),
+  ).toEqual({
+    idcsUrl: "https://idcs.example.com",
+    clientId: "client-123",
+  })
+})

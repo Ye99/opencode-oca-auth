@@ -44,6 +44,33 @@ const HTML_ERROR = (error: string) => `<!doctype html>
 let oauthServer: ReturnType<typeof Bun.serve> | undefined
 let pendingOAuth: PendingOAuth | undefined
 
+const normalizeUrl = (value: string) => value.replace(/\/+$/, "")
+
+const readTokenError = async (response: Response) => {
+  const type = response.headers.get("content-type") ?? ""
+  if (type.includes("application/json")) {
+    const payload = (await response.json().catch(() => undefined)) as
+      | {
+          error?: string
+          error_description?: string
+          message?: string
+        }
+      | undefined
+    if (payload) {
+      const detail = payload.error_description ?? payload.message
+      if (payload.error && detail) return `${payload.error}: ${detail}`
+      if (payload.error) return payload.error
+      if (detail) return detail
+    }
+  }
+
+  const text = await response.text().catch(() => "")
+  if (!text) return
+  const compact = text.replace(/\s+/g, " ").trim()
+  if (!compact) return
+  return compact.slice(0, 240)
+}
+
 const random = (length: number) => {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
   const bytes = crypto.getRandomValues(new Uint8Array(length))
@@ -90,8 +117,9 @@ const authorizeUrl = (idcsUrl: string, clientId: string, codes: Pkce, value: str
 
 export function oauthConfig(value?: { enterpriseUrl?: string; accountId?: string }) {
   loadEnv()
+  const idcsUrl = value?.enterpriseUrl ?? process.env.OCA_IDCS_URL ?? DEFAULT_IDCS_URL
   return {
-    idcsUrl: value?.enterpriseUrl ?? process.env.OCA_IDCS_URL ?? DEFAULT_IDCS_URL,
+    idcsUrl: normalizeUrl(idcsUrl),
     clientId: value?.accountId ?? process.env.OCA_CLIENT_ID ?? DEFAULT_IDCS_CLIENT_ID,
   }
 }
@@ -109,7 +137,14 @@ export async function refreshAccessToken(idcsUrl: string, clientId: string, refr
     }).toString(),
   })
 
-  if (!response.ok) throw new Error(`Token refresh failed: ${response.status}`)
+  if (!response.ok) {
+    const detail = await readTokenError(response)
+    throw new Error(
+      detail
+        ? `Token refresh failed: ${response.status} (${detail})`
+        : `Token refresh failed: ${response.status}`,
+    )
+  }
   return (await response.json()) as TokenResponse
 }
 

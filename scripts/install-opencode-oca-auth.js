@@ -14,28 +14,6 @@ const DEFAULT_CONFIG = join(homedir(), ".config", "opencode", "opencode.json")
 const PLUGIN = "opencode-oca-auth"
 
 export const DEFAULT_OCA_MODEL_ID = "gpt-5.3-codex"
-export const DEFAULT_OCA_MODEL = {
-  id: DEFAULT_OCA_MODEL_ID,
-  providerID: "oca",
-  name: DEFAULT_OCA_MODEL_ID,
-  api: {
-    id: DEFAULT_OCA_MODEL_ID,
-    npm: "@ai-sdk/openai",
-  },
-  status: "active",
-  capabilities: {
-    temperature: true,
-    reasoning: true,
-    attachment: true,
-    toolcall: true,
-    input: { text: true, audio: false, image: true, video: false, pdf: true },
-    output: { text: true, audio: false, image: false, video: false, pdf: false },
-  },
-  cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-  limit: { context: 128_000, output: 16_384 },
-  options: {},
-  headers: {},
-}
 
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
 
@@ -71,7 +49,7 @@ export const installConfig = (input, pluginId = PLUGIN) => {
       (x) => isObject(x) && x.id === DEFAULT_OCA_MODEL_ID,
     )
     if (!hasDefault) {
-      oca.models = [...oca.models, { id: DEFAULT_OCA_MODEL_ID, ...clone(DEFAULT_OCA_MODEL) }]
+      oca.models = [...oca.models, { id: DEFAULT_OCA_MODEL_ID }]
     }
     return config
   }
@@ -79,7 +57,7 @@ export const installConfig = (input, pluginId = PLUGIN) => {
   const models = toObject(oca.models)
   oca.models = models
   if (!isObject(models[DEFAULT_OCA_MODEL_ID])) {
-    models[DEFAULT_OCA_MODEL_ID] = clone(DEFAULT_OCA_MODEL)
+    models[DEFAULT_OCA_MODEL_ID] = {}
   }
 
   return config

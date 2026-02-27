@@ -34,7 +34,7 @@ type OAuthAuth = Extract<Auth, { type: "oauth" }> & { accountId?: string }
 
 let discoveredBaseUrl: string | undefined
 let discoveredModels: DiscoveredModel[] | undefined
-const OCA_RELOGIN_HINT = "Run `opencode auth login oca` to refresh credentials."
+const OCA_RELOGIN_HINT = "Run `opencode auth login`, then select `oca`, to refresh credentials."
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -46,7 +46,7 @@ const errorMessage = (value: unknown) =>
   value instanceof Error ? value.message : String(value)
 
 const withReloginHint = (message: string) =>
-  message.includes("opencode auth login oca") ? message : `${message}. ${OCA_RELOGIN_HINT}`
+  message.includes("opencode auth login") ? message : `${message}. ${OCA_RELOGIN_HINT}`
 
 export function resetDiscoveryCache() {
   discoveredBaseUrl = undefined

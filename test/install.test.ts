@@ -18,6 +18,22 @@ test("install adds plugin and oca model for modern config", () => {
   expect(models[DEFAULT_OCA_MODEL_ID]).toBeDefined()
 })
 
+test("install prefers explicit plugin path over legacy package id", () => {
+  const pluginId = "file:///tmp/opencode-oca-auth"
+  const next = installConfig(
+    {
+      plugin: ["opencode-oca-auth", "existing-plugin", pluginId],
+    },
+    pluginId,
+  )
+  const plugins = (next.plugin ?? []) as string[]
+
+  expect(plugins[0]).toBe(pluginId)
+  expect(plugins.filter((x) => x === pluginId)).toHaveLength(1)
+  expect(plugins).toContain("existing-plugin")
+  expect(plugins).not.toContain("opencode-oca-auth")
+})
+
 test("install adds stable codex default and not older defaults", () => {
   const next = installConfig(modern)
   const models = (next.provider?.oca?.models ?? {}) as Record<string, unknown>

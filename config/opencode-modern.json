@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["existing-plugin"],
+  "provider": {
+    "openai": {
+      "models": {
+        "gpt-4.1": {
+          "name": "GPT 4.1"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "opencode-oca-auth",
+  "version": "0.0.0",
+  "description": "Standalone OpenCode auth plugin for provider oca",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "bin": {
+    "opencode-oca-auth-install": "./scripts/install-opencode-oca-auth.js",
+    "opencode-oca-auth-uninstall": "./scripts/uninstall-opencode-oca-auth.js"
+  },
+  "files": [
+    "index.ts",
+    "README.md",
+    "src",
+    "scripts",
+    "config"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.2.15"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.6",
+    "typescript": "^5.9.2"
+  }
+}

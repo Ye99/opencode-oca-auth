@@ -453,6 +453,33 @@ test("oauth authorize uses auto callback server and exchanges code with pkce", a
   expect(params.get("code_verifier")?.length).toBeGreaterThan(0)
 })
 
+test("oauth authorize rejects invalid idcs url input", async () => {
+  const input = {
+    client: {
+      auth: {
+        set: async () => ({}),
+      },
+    },
+  } as unknown as Parameters<typeof plugin>[0]
+  const hooks = await plugin(input)
+  const methods = hooks.auth?.methods ?? []
+  const oauth = methods.find((x) => x.type === "oauth")
+  expect(oauth).toBeDefined()
+
+  if (!oauth || oauth.type !== "oauth") throw new Error("missing oauth method")
+
+  try {
+    await oauth.authorize({
+      idcsUrl: "idcs.example.com",
+      clientId: "client-123",
+    })
+    throw new Error("expected authorize to fail")
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    expect(message).toContain("Invalid IDCS URL")
+  }
+})
+
 test("loader leaves api auth without oauth fetch injection", async () => {
   const input = {
     client: {

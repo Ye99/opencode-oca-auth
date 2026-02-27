@@ -46,6 +46,20 @@ let pendingOAuth: PendingOAuth | undefined
 
 const normalizeUrl = (value: string) => value.replace(/\/+$/, "")
 
+const nonEmpty = (value?: string) => {
+  const next = value?.trim()
+  return next ? next : undefined
+}
+
+const isHttpUrl = (value: string) => {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === "https:" || parsed.protocol === "http:"
+  } catch {
+    return false
+  }
+}
+
 const readTokenError = async (response: Response) => {
   const type = response.headers.get("content-type") ?? ""
   if (type.includes("application/json")) {
@@ -117,15 +131,25 @@ const authorizeUrl = (idcsUrl: string, clientId: string, codes: Pkce, value: str
 
 export function oauthConfig(value?: { enterpriseUrl?: string; accountId?: string }) {
   loadEnv()
-  const idcsUrl = value?.enterpriseUrl ?? process.env.OCA_IDCS_URL ?? DEFAULT_IDCS_URL
+  const idcsUrl = nonEmpty(value?.enterpriseUrl)
+    ?? nonEmpty(process.env.OCA_IDCS_URL)
+    ?? DEFAULT_IDCS_URL
+  const clientId = nonEmpty(value?.accountId)
+    ?? nonEmpty(process.env.OCA_CLIENT_ID)
+    ?? DEFAULT_IDCS_CLIENT_ID
   return {
     idcsUrl: normalizeUrl(idcsUrl),
-    clientId: value?.accountId ?? process.env.OCA_CLIENT_ID ?? DEFAULT_IDCS_CLIENT_ID,
+    clientId,
   }
 }
 
 export async function refreshAccessToken(idcsUrl: string, clientId: string, refresh: string): Promise<TokenResponse> {
-  const response = await fetch(`${idcsUrl}/oauth2/v1/token`, {
+  const base = normalizeUrl(idcsUrl)
+  if (!isHttpUrl(base)) {
+    throw new Error(`Invalid IDCS URL: ${idcsUrl}`)
+  }
+
+  const response = await fetch(`${base}/oauth2/v1/token`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -155,7 +179,12 @@ export async function exchangeCodeForTokens(
   value: string,
   verifier: string,
 ): Promise<TokenResponse> {
-  const response = await fetch(`${idcsUrl}/oauth2/v1/token`, {
+  const base = normalizeUrl(idcsUrl)
+  if (!isHttpUrl(base)) {
+    throw new Error(`Invalid IDCS URL: ${idcsUrl}`)
+  }
+
+  const response = await fetch(`${base}/oauth2/v1/token`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -280,8 +309,12 @@ export function oauthMethod() {
       },
     ],
     authorize: async (inputs: Record<string, string> = {}) => {
-      const idcsUrl = (inputs.idcsUrl || oauthConfig().idcsUrl).replace(/\/$/, "")
-      const clientId = inputs.clientId || oauthConfig().clientId
+      const config = oauthConfig()
+      const idcsUrl = normalizeUrl(nonEmpty(inputs.idcsUrl) ?? config.idcsUrl)
+      if (!isHttpUrl(idcsUrl)) {
+        throw new Error(`Invalid IDCS URL: ${idcsUrl}. Use a full URL like https://idcs.example.com`)
+      }
+      const clientId = nonEmpty(inputs.clientId) ?? config.clientId
       startOAuthServer()
       const codes = await pkce()
       const value = state()

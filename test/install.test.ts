@@ -18,6 +18,14 @@ test("install adds plugin and oca model for modern config", () => {
   expect(models[DEFAULT_OCA_MODEL_ID]).toBeDefined()
 })
 
+test("install adds latest codex default and not legacy default", () => {
+  const next = installConfig(modern)
+  const models = (next.provider?.oca?.models ?? {}) as Record<string, unknown>
+
+  expect(models["gpt-5.3-codex"]).toBeDefined()
+  expect(models["gpt-oss-120b"]).toBeUndefined()
+})
+
 test("install is idempotent", () => {
   const once = installConfig(modern)
   const twice = installConfig(once)
@@ -109,4 +117,23 @@ test("uninstall removes empty array-based oca provider", () => {
   const next = uninstallConfig(input)
 
   expect(next.provider?.oca).toBeUndefined()
+})
+
+test("uninstall removes previous default model id", () => {
+  const input = {
+    plugin: ["opencode-oca-auth"],
+    provider: {
+      oca: {
+        models: [
+          { id: "gpt-oss-120b", name: "Legacy Default" },
+          { id: "custom", name: "Custom" },
+        ],
+      },
+    },
+  }
+
+  const next = uninstallConfig(input)
+  const models = (next.provider?.oca?.models ?? []) as Array<{ id?: string; name?: string }>
+
+  expect(models).toEqual([{ id: "custom", name: "Custom" }])
 })

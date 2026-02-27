@@ -1,10 +1,17 @@
 #!/usr/bin/env node
 
-import { readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { homedir } from "node:os"
+import { dirname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const PACKAGE_ROOT = resolve(__dirname, "..")
+const DEFAULT_CONFIG = join(homedir(), ".config", "opencode", "opencode.json")
 
 const PLUGIN = "opencode-oca-auth"
 
-export const DEFAULT_OCA_MODEL_ID = "gpt-oss-120b"
+export const DEFAULT_OCA_MODEL_ID = "gpt-5.3-codex"
 export const DEFAULT_OCA_MODEL = {}
 
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
@@ -18,7 +25,7 @@ const toPlugins = (value) => {
   return []
 }
 
-export const installConfig = (input) => {
+export const installConfig = (input, pluginId = PLUGIN) => {
   const config = toObject(clone(input ?? {}))
   if (typeof config.$schema !== "string" || !config.$schema) {
     config.$schema = "https://opencode.ai/config.json"
@@ -26,7 +33,7 @@ export const installConfig = (input) => {
 
   const pluginKey = Array.isArray(config.plugins) ? "plugins" : "plugin"
   const plugins = toPlugins(config[pluginKey])
-  if (!plugins.includes(PLUGIN)) plugins.push(PLUGIN)
+  if (!plugins.includes(pluginId)) plugins.push(pluginId)
   config[pluginKey] = plugins
 
   const providerKey = isObject(config.providers) ? "providers" : "provider"
@@ -55,10 +62,13 @@ export const installConfig = (input) => {
   return config
 }
 
-if (import.meta.main) {
-  const file = process.argv[2] ?? "opencode.json"
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const file = process.argv[2] ?? DEFAULT_CONFIG
   const text = await readFile(file, "utf8").catch(() => "{}")
   const current = JSON.parse(text || "{}")
-  const next = installConfig(current)
+  const pluginId = `file://${PACKAGE_ROOT}`
+  const next = installConfig(current, pluginId)
+  await mkdir(dirname(file), { recursive: true })
   await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8")
+  console.log(`Updated ${file}`)
 }

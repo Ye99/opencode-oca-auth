@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test"
 import { rm, writeFile } from "node:fs/promises"
 
+import { DEFAULT_IDCS_CLIENT_ID, DEFAULT_IDCS_URL } from "../src/constants"
 import { resetEnvCache } from "../src/env"
 import { oauthConfig } from "../src/oauth"
 
@@ -17,6 +18,17 @@ afterEach(async () => {
 
   await rm(envFile, { force: true })
   resetEnvCache()
+})
+
+test("oauth config falls back to defaults when env vars are blank", () => {
+  process.env.OCA_IDCS_URL = "   "
+  process.env.OCA_CLIENT_ID = ""
+  resetEnvCache()
+
+  expect(oauthConfig()).toEqual({
+    idcsUrl: DEFAULT_IDCS_URL,
+    clientId: DEFAULT_IDCS_CLIENT_ID,
+  })
 })
 
 test("oauth config reads values from .env", async () => {

@@ -37,6 +37,8 @@ opencode auth login
 opencode models
 ```
 
+Use `opencode auth login` without extra arguments, then choose `oca` in the provider picker.
+
 Select an `oca:*` model and run prompts normally.
 
 To confirm the default OCA model works after setup, run:

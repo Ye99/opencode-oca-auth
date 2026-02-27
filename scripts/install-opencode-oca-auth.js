@@ -26,6 +26,21 @@ const toPlugins = (value) => {
   return []
 }
 
+const normalizePlugins = (value, pluginId) => {
+  const seen = new Set()
+  const next = [pluginId]
+  seen.add(pluginId)
+
+  for (const item of toPlugins(value)) {
+    if (item === PLUGIN || item === pluginId) continue
+    if (seen.has(item)) continue
+    seen.add(item)
+    next.push(item)
+  }
+
+  return next
+}
+
 export const installConfig = (input, pluginId = PLUGIN) => {
   const config = toObject(clone(input ?? {}))
   if (typeof config.$schema !== "string" || !config.$schema) {
@@ -33,9 +48,7 @@ export const installConfig = (input, pluginId = PLUGIN) => {
   }
 
   const pluginKey = Array.isArray(config.plugins) ? "plugins" : "plugin"
-  const plugins = toPlugins(config[pluginKey])
-  if (!plugins.includes(pluginId)) plugins.push(pluginId)
-  config[pluginKey] = plugins
+  config[pluginKey] = normalizePlugins(config[pluginKey], pluginId)
 
   const providerKey = isObject(config.providers) ? "providers" : "provider"
   const provider = toObject(config[providerKey])

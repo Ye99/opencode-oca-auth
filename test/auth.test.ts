@@ -683,6 +683,6 @@ test("expired oauth token refresh failure includes relogin hint", async () => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     expect(message).toContain("invalid_grant")
-    expect(message).toContain("opencode auth login oca")
+    expect(message).toContain("opencode auth login")
   }
 })

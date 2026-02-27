@@ -4,15 +4,30 @@ Standalone OpenCode plugin for OCA authentication and model wiring.
 
 ## Install
 
+### Standard
+
 ```bash
-npm i -g opencode-oca-auth
+git clone <this-repo>
+cd opencode-oca-auth
+npm install -g .
+opencode-oca-auth-install
+```
+
+### Development (live edits)
+
+Use `npm link` so changes to the source are picked up immediately without reinstalling:
+
+```bash
+git clone <this-repo>
+cd opencode-oca-auth
+npm link
 opencode-oca-auth-install
 ```
 
 The installer adds:
 
 - `opencode-oca-auth` to your OpenCode plugin list
-- `provider.oca.models.gpt-oss-120b` to your OpenCode config
+- `provider.oca.models.gpt-5.3-codex` to your OpenCode config
 
 ## Login and use OCA models
 

@@ -1,9 +1,17 @@
 #!/usr/bin/env node
 
 import { readFile, writeFile } from "node:fs/promises"
+import { homedir } from "node:os"
+import { dirname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const PACKAGE_ROOT = resolve(__dirname, "..")
+const DEFAULT_CONFIG = join(homedir(), ".config", "opencode", "opencode.json")
 
 const PLUGIN = "opencode-oca-auth"
-const DEFAULT_OCA_MODEL_ID = "gpt-oss-120b"
+const DEFAULT_OCA_MODEL_ID = "gpt-5.3-codex"
+const PREVIOUS_DEFAULT_OCA_MODEL_ID = "gpt-oss-120b"
 const LEGACY_OCA_MODEL_ID = "oca-default"
 
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
@@ -22,12 +30,15 @@ const cleanProvider = (config, key) => {
   if (Array.isArray(oca.models)) {
     oca.models = oca.models.filter((x) => {
       if (!isObject(x)) return true
-      return x.id !== DEFAULT_OCA_MODEL_ID && x.id !== LEGACY_OCA_MODEL_ID
+      return x.id !== DEFAULT_OCA_MODEL_ID
+        && x.id !== PREVIOUS_DEFAULT_OCA_MODEL_ID
+        && x.id !== LEGACY_OCA_MODEL_ID
     })
     if (!oca.models.length) delete oca.models
   }
   if (isObject(oca.models)) {
     delete oca.models[DEFAULT_OCA_MODEL_ID]
+    delete oca.models[PREVIOUS_DEFAULT_OCA_MODEL_ID]
     delete oca.models[LEGACY_OCA_MODEL_ID]
     if (!Object.keys(oca.models).length) delete oca.models
   }
@@ -36,14 +47,15 @@ const cleanProvider = (config, key) => {
   if (!Object.keys(provider).length) delete config[key]
 }
 
-export const uninstallConfig = (input) => {
+export const uninstallConfig = (input, pluginId = PLUGIN) => {
   const config = toObject(clone(input ?? {}))
 
+  const isPlugin = (x) => x === PLUGIN || x === pluginId
   if (Array.isArray(config.plugin)) {
-    config.plugin = config.plugin.filter((x) => x !== PLUGIN)
+    config.plugin = config.plugin.filter((x) => !isPlugin(x))
   }
   if (Array.isArray(config.plugins)) {
-    config.plugins = config.plugins.filter((x) => x !== PLUGIN)
+    config.plugins = config.plugins.filter((x) => !isPlugin(x))
   }
 
   cleanProvider(config, "provider")
@@ -52,10 +64,12 @@ export const uninstallConfig = (input) => {
   return config
 }
 
-if (import.meta.main) {
-  const file = process.argv[2] ?? "opencode.json"
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const file = process.argv[2] ?? DEFAULT_CONFIG
   const text = await readFile(file, "utf8").catch(() => "{}")
   const current = JSON.parse(text || "{}")
-  const next = uninstallConfig(current)
+  const pluginId = `file://${PACKAGE_ROOT}`
+  const next = uninstallConfig(current, pluginId)
   await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8")
+  console.log(`Updated ${file}`)
 }

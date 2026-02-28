@@ -1122,6 +1122,188 @@ test("loader prefers /v1/model/info over /models when both succeed", async () =>
   expect(hits).toContain("/v1/model/info")
 })
 
+test("loader uses model_name/supports_vision/reasoning_effort_options from endpoint", async () => {
+  delete process.env.OCA_BASE_URL
+  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+
+  globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
+    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+      return Response.json({
+        data: [
+          {
+            model_name: "Endpoint Name",
+            litellm_params: { model: "oca/gpt-5.3-codex" },
+            model_info: {
+              is_reasoning_model: true,
+              supported_api_list: ["RESPONSES"],
+              supports_vision: false,
+              reasoning_effort_options: ["low", "medium"],
+              context_window: 272000,
+              max_output_tokens: 128000,
+            },
+          },
+        ],
+      })
+    }
+    return new Response("nope", { status: 404 })
+  }) as unknown as typeof fetch
+
+  const input = {
+    client: { auth: { set: async () => ({}) } },
+  } as unknown as Parameters<typeof plugin>[0]
+  const hooks = await plugin(input)
+  const loader = hooks.auth?.loader
+  if (!loader) throw new Error("missing loader")
+
+  const provider = {
+    id: "oca",
+    name: "Oracle Code Assist",
+    source: "custom",
+    env: ["OCA_API_KEY"],
+    options: {},
+    models: {},
+  }
+
+  await loader(
+    async () => ({
+      type: "oauth",
+      refresh: "refresh-token",
+      access: "access-token",
+      expires: Date.now() + 60_000,
+    }),
+    provider as never,
+  )
+
+  const model = (provider.models as Record<string, any>)["gpt-5.3-codex"]
+  expect(model.name).toBe("Endpoint Name")
+  expect(model.capabilities.input.image).toBe(false)
+  expect(Object.keys(model.variants).sort()).toEqual(["low", "medium"])
+  expect(model.variants.low).toEqual({
+    reasoningEffort: "low",
+    reasoningSummary: "auto",
+    include: ["reasoning.encrypted_content"],
+  })
+})
+
+test("loader preserves unknown endpoint fields under options.oca.endpoint", async () => {
+  delete process.env.OCA_BASE_URL
+  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+
+  globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
+    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+      return Response.json({
+        data: [
+          {
+            model_name: "Future Field Model",
+            extra_top_level_field: { nested: true },
+            litellm_params: { model: "oca/gpt-5.3-codex", extra_litellm_field: 42 },
+            model_info: {
+              context_window: 272000,
+              max_output_tokens: 128000,
+              new_future_field: ["a", "b"],
+            },
+          },
+        ],
+      })
+    }
+    return new Response("nope", { status: 404 })
+  }) as unknown as typeof fetch
+
+  const input = {
+    client: { auth: { set: async () => ({}) } },
+  } as unknown as Parameters<typeof plugin>[0]
+  const hooks = await plugin(input)
+  const loader = hooks.auth?.loader
+  if (!loader) throw new Error("missing loader")
+
+  const provider = {
+    id: "oca",
+    name: "Oracle Code Assist",
+    source: "custom",
+    env: ["OCA_API_KEY"],
+    options: {},
+    models: {},
+  }
+
+  await loader(
+    async () => ({
+      type: "oauth",
+      refresh: "refresh-token",
+      access: "access-token",
+      expires: Date.now() + 60_000,
+    }),
+    provider as never,
+  )
+
+  const model = (provider.models as Record<string, any>)["gpt-5.3-codex"]
+  expect(model.options.oca.endpoint.extra_top_level_field).toEqual({ nested: true })
+  expect(model.options.oca.endpoint.litellm_params.extra_litellm_field).toBe(42)
+  expect(model.options.oca.endpoint.model_info.new_future_field).toEqual(["a", "b"])
+})
+
+test("loader merges endpoint payload without dropping user endpoint annotations", async () => {
+  delete process.env.OCA_BASE_URL
+  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+
+  globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
+    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+      return Response.json({
+        data: [
+          {
+            model_name: "Endpoint Name",
+            litellm_params: { model: "oca/gpt-5.3-codex", max_tokens: 272000 },
+            model_info: {
+              context_window: 272000,
+              max_output_tokens: 128000,
+            },
+          },
+        ],
+      })
+    }
+    return new Response("nope", { status: 404 })
+  }) as unknown as typeof fetch
+
+  const input = {
+    client: { auth: { set: async () => ({}) } },
+  } as unknown as Parameters<typeof plugin>[0]
+  const hooks = await plugin(input)
+  const loader = hooks.auth?.loader
+  if (!loader) throw new Error("missing loader")
+
+  const provider = {
+    id: "oca",
+    name: "Oracle Code Assist",
+    source: "custom",
+    env: ["OCA_API_KEY"],
+    options: {},
+    models: {
+      "gpt-5.3-codex": {
+        options: {
+          oca: {
+            endpoint: {
+              custom_note: "keep-me",
+            },
+          },
+        },
+      },
+    },
+  }
+
+  await loader(
+    async () => ({
+      type: "oauth",
+      refresh: "refresh-token",
+      access: "access-token",
+      expires: Date.now() + 60_000,
+    }),
+    provider as never,
+  )
+
+  const model = (provider.models as Record<string, any>)["gpt-5.3-codex"]
+  expect(model.options.oca.endpoint.custom_note).toBe("keep-me")
+  expect(model.options.oca.endpoint.model_info.context_window).toBe(272000)
+})
+
 test("expired oauth token refresh failure includes relogin hint", async () => {
   globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
     if (String(url).includes("/oauth2/v1/token")) {

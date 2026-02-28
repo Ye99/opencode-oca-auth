@@ -1,6 +1,6 @@
 # opencode-oca-auth
 
-Standalone OpenCode plugin for OCA authentication and model wiring.
+Standalone OpenCode plugin for OCA authentication and model setup.
 
 ## Install
 
@@ -14,7 +14,7 @@ node ./scripts/install-opencode-oca-auth.js ~/.config/opencode/opencode.json
 
 ### Development (live edits)
 
-Use `npm link` if you want helper commands in your PATH, then run the installer script directly:
+Use `npm link` if you want helper commands in your `PATH`, then run the installer script directly:
 
 ```bash
 git clone <this-repo>
@@ -23,7 +23,7 @@ npm link
 node ./scripts/install-opencode-oca-auth.js ~/.config/opencode/opencode.json
 ```
 
-Run the installer as its own command. Do not append other commands to the same line.
+Run the installer as a standalone command. Do not append other commands on the same line.
 
 The installer adds:
 
@@ -37,9 +37,9 @@ opencode auth login
 opencode models
 ```
 
-Use `opencode auth login` without extra arguments, then choose `oca` in the provider picker.
+Run `opencode auth login` without extra arguments, then choose `oca` in the provider picker.
 
-Select an `oca:*` model and run prompts normally.
+Select an `oca:*` model and run prompts as usual.
 
 To confirm the default OCA model works after setup, run:
 
@@ -56,7 +56,7 @@ The plugin includes public default OAuth values:
 - `OCA_IDCS_URL=https://idcs-9dc693e80d9b469480d7afe00e743931.identity.oraclecloud.com`
 - `OCA_CLIENT_ID=a8331954c0cf48ba99b5dd223a14c6ea`
 
-These are mirrored from Cline's public constants file:
+These values are mirrored from Cline's public constants file:
 `https://github.com/cline/cline/blob/main/src/services/auth/oca/utils/constants.ts`.
 You can override them with `OCA_IDCS_URL` and `OCA_CLIENT_ID`.
 
@@ -83,8 +83,14 @@ This removes the plugin entry and the default OCA model entry.
 
 ## Development
 
+Use the following commands during local development:
+
 ```bash
 bun install
 bun test
-bunx tsc --noEmit
+bun run typecheck
 ```
+
+- `bun install` installs project dependencies.
+- `bun test` runs the full test suite.
+- `bun run typecheck` checks TypeScript types without generating output files.

@@ -36,12 +36,6 @@ let discoveredBaseUrl: string | undefined
 let discoveredModels: DiscoveredModel[] | undefined
 const OCA_RELOGIN_HINT = "Run `opencode auth login`, then select `oca`, to refresh credentials."
 
-const isObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
-
-const toObject = (value: unknown): Record<string, unknown> =>
-  isObject(value) ? value : {}
-
 const errorMessage = (value: unknown) =>
   value instanceof Error ? value.message : String(value)
 
@@ -132,30 +126,22 @@ function upsertModels(provider: Provider | undefined, baseURL: string) {
   if (!provider.models) return
   for (const model of discoveredModels ?? []) {
     const id = model.id
-    const existing = isObject(provider.models[id])
-      ? provider.models[id]
-      : {}
-    const existingApi = toObject(existing.api)
-    const existingCapabilities = toObject(existing.capabilities)
+    const existing = provider.models[id] as Provider["models"][string] | undefined
 
     provider.models[id] = {
-      ...existing,
+      ...(existing ?? {}),
       id,
       providerID: "oca",
-      name: typeof existing.name === "string" && existing.name
-        ? existing.name
-        : id,
+      name: existing?.name ?? id,
       api: {
-        ...existingApi,
+        ...(existing?.api ?? {}),
         id,
         url: baseURL,
         npm: model.npm,
       },
-      status: typeof existing.status === "string"
-        ? existing.status
-        : "active",
+      status: existing?.status ?? "active",
       capabilities: {
-        ...existingCapabilities,
+        ...(existing?.capabilities ?? {}),
         temperature: true,
         reasoning: model.reasoning,
         attachment: true,
@@ -166,7 +152,7 @@ function upsertModels(provider: Provider | undefined, baseURL: string) {
           image: true,
           video: false,
           pdf: true,
-          ...toObject(existingCapabilities.input),
+          ...(existing?.capabilities?.input ?? {}),
         },
         output: {
           text: true,
@@ -174,21 +160,13 @@ function upsertModels(provider: Provider | undefined, baseURL: string) {
           image: false,
           video: false,
           pdf: false,
-          ...toObject(existingCapabilities.output),
+          ...(existing?.capabilities?.output ?? {}),
         },
       },
-      cost: isObject(existing.cost)
-        ? existing.cost
-        : { input: 0, output: 0, cache: { read: 0, write: 0 } },
-      limit: isObject(existing.limit)
-        ? existing.limit
-        : { context: 128_000, output: 16_384 },
-      options: isObject(existing.options)
-        ? existing.options
-        : {},
-      headers: isObject(existing.headers)
-        ? existing.headers
-        : {},
+      cost: existing?.cost ?? { input: 0, output: 0, cache: { read: 0, write: 0 } },
+      limit: existing?.limit ?? { context: 128_000, output: 16_384 },
+      options: existing?.options ?? {},
+      headers: existing?.headers ?? {},
     }
   }
 }
@@ -254,8 +232,8 @@ export function authLoader(input: PluginInput) {
       return { baseURL: url }
     }
 
-    const validToken = (value: OAuthAuth | undefined) =>
-      Boolean(value?.access) && value.expires > Date.now()
+    const validToken = (value: OAuthAuth | undefined): value is OAuthAuth =>
+      Boolean(value?.access) && (value?.expires ?? 0) > Date.now()
     const newest = (a: OAuthAuth | undefined, b: OAuthAuth | undefined) => {
       if (!a) return b
       if (!b) return a

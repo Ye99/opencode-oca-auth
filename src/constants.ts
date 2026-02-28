@@ -4,3 +4,4 @@ export const DEFAULT_IDCS_URL = "https://idcs-9dc693e80d9b469480d7afe00e743931.i
 export const DEFAULT_IDCS_CLIENT_ID = "a8331954c0cf48ba99b5dd223a14c6ea"
 export const OAUTH_PORT = 48801
 export const OAUTH_REDIRECT_PATH = "/auth/oca"
+export const OAUTH_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000

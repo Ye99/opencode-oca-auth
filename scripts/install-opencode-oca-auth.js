@@ -15,11 +15,7 @@ const PLUGIN = "opencode-oca-auth"
 
 export const DEFAULT_OCA_MODEL_ID = "gpt-5.3-codex"
 
-const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
-
-const clone = (value) => structuredClone(value)
-
-const toObject = (value) => (isObject(value) ? value : {})
+import { isObject, clone, toObject } from "./utils.js"
 
 const toPlugins = (value) => {
   if (Array.isArray(value)) return value.filter((x) => typeof x === "string")

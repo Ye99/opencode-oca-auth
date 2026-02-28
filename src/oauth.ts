@@ -1,5 +1,5 @@
 import { loadEnv } from "./env"
-import { DEFAULT_IDCS_CLIENT_ID, DEFAULT_IDCS_URL, OAUTH_PORT, OAUTH_REDIRECT_PATH } from "./constants"
+import { DEFAULT_IDCS_CLIENT_ID, DEFAULT_IDCS_URL, OAUTH_CALLBACK_TIMEOUT_MS, OAUTH_PORT, OAUTH_REDIRECT_PATH } from "./constants"
 
 type TokenResponse = {
   access_token: string
@@ -32,12 +32,15 @@ const HTML_SUCCESS = `<!doctype html>
   </body>
 </html>`
 
+const escapeHtml = (value: string) =>
+  value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string))
+
 const HTML_ERROR = (error: string) => `<!doctype html>
 <html>
   <head><title>OpenCode - OCA Authorization Failed</title></head>
   <body>
     <h1>Authorization Failed</h1>
-    <p>${error}</p>
+    <p>${escapeHtml(error)}</p>
   </body>
 </html>`
 
@@ -198,13 +201,21 @@ export async function exchangeCodeForTokens(
     }).toString(),
   })
 
-  if (!response.ok) throw new Error(`Token exchange failed: ${response.status}`)
+  if (!response.ok) {
+    const detail = await readTokenError(response)
+    throw new Error(
+      detail
+        ? `Token exchange failed: ${response.status} (${detail})`
+        : `Token exchange failed: ${response.status}`,
+    )
+  }
   return (await response.json()) as TokenResponse
 }
 
 const startOAuthServer = () => {
   if (oauthServer) return
   oauthServer = Bun.serve({
+    hostname: "127.0.0.1",
     port: OAUTH_PORT,
     fetch(req) {
       const url = new URL(req.url)
@@ -271,7 +282,7 @@ const waitForOAuthCallback = (codes: Pkce, value: string, idcsUrl: string, clien
       if (!pendingOAuth) return
       pendingOAuth = undefined
       reject(new Error("OAuth callback timeout"))
-    }, 5 * 60 * 1000)
+    }, OAUTH_CALLBACK_TIMEOUT_MS)
 
     pendingOAuth = {
       pkce: codes,
@@ -335,7 +346,8 @@ export function oauthMethod() {
               accountId: clientId,
               enterpriseUrl: idcsUrl,
             }
-          } catch {
+          } catch (err) {
+            console.error("[oca] OAuth callback failed:", err instanceof Error ? err.message : String(err))
             return {
               type: "failed" as const,
             }

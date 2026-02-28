@@ -199,11 +199,15 @@ test("loader falls back to v1/model/info discovery endpoint", async () => {
   )
 
   expect(loaded.baseURL).toBe("https://oca.example/litellm")
-  expect(calls).toEqual([
-    "https://oca.example/litellm/models",
-    "https://oca.example/litellm/v1/models",
-    "https://oca.example/litellm/v1/model/info",
-  ])
+  // All base URLs (custom + built-in defaults) are probed in parallel; verify the custom URL's
+  // three paths were all attempted before the working one (v1/model/info) was found.
+  expect(calls).toEqual(
+    expect.arrayContaining([
+      "https://oca.example/litellm/models",
+      "https://oca.example/litellm/v1/models",
+      "https://oca.example/litellm/v1/model/info",
+    ]),
+  )
   expect((provider.models as Record<string, any>)["gpt-5.3-codex"].api.npm).toBe("@ai-sdk/openai")
 })
 

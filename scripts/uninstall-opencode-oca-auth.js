@@ -17,11 +17,7 @@ const PREVIOUS_DEFAULT_OCA_MODEL_ID = "gpt-5-codex"
 const LEGACY_PREVIOUS_DEFAULT_OCA_MODEL_ID = "gpt-oss-120b"
 const LEGACY_OCA_MODEL_ID = "oca-default"
 
-const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value)
-
-const clone = (value) => structuredClone(value)
-
-const toObject = (value) => (isObject(value) ? value : {})
+import { isObject, clone, toObject } from "./utils.js"
 
 const cleanProvider = (config, key) => {
   if (!isObject(config[key])) return

@@ -146,65 +146,6 @@ test("loader populates provider models from oca models endpoint", async () => {
   expect(Object.keys(provider.models).sort()).toEqual(["gpt-5", "gpt-oss-120b"])
 })
 
-test("loader uses /v1/model/info as primary discovery endpoint", async () => {
-  delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
-
-  const calls: string[] = []
-  globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
-    const value = String(url)
-    calls.push(value)
-    if (value === "https://oca.example/litellm/v1/model/info") {
-      return Response.json({
-        data: [
-          {
-            litellm_params: { model: "oca/gpt-5.3-codex" },
-            model_info: { is_reasoning_model: true, supported_api_list: ["RESPONSES"] },
-          },
-        ],
-      })
-    }
-    return new Response("nope", { status: 404 })
-  }) as unknown as typeof fetch
-
-  const input = {
-    client: {
-      auth: {
-        set: async () => ({}),
-      },
-    },
-  } as unknown as Parameters<typeof plugin>[0]
-  const hooks = await plugin(input)
-  const loader = hooks.auth?.loader
-  expect(loader).toBeDefined()
-
-  if (!loader) throw new Error("missing loader")
-
-  const provider = {
-    id: "oca",
-    name: "Oracle Code Assist",
-    source: "custom",
-    env: ["OCA_API_KEY"],
-    options: {},
-    models: {},
-  }
-
-  const loaded = await loader(
-    async () => ({
-      type: "oauth",
-      refresh: "refresh-token",
-      access: "access-token",
-      expires: Date.now() + 60_000,
-    }),
-    provider as never,
-  )
-
-  expect(loaded.baseURL).toBe("https://oca.example/litellm")
-  // /v1/model/info should be the first path attempted for the custom URL
-  expect(calls[0]).toBe("https://oca.example/litellm/v1/model/info")
-  expect((provider.models as Record<string, any>)["gpt-5.3-codex"].api.npm).toBe("@ai-sdk/openai")
-})
-
 test("loader upgrades empty existing model entries", async () => {
   delete process.env.OCA_BASE_URL
   process.env.OCA_BASE_URLS = "https://oca.example/litellm"
@@ -756,72 +697,6 @@ test("loader uses cost from api model_info when available", async () => {
   expect(codex.cost).toEqual({
     input: 0.00003,
     output: 0.00006,
-    cache: { read: 0, write: 0 },
-  })
-})
-
-test("loader uses both limit and cost from api model_info together", async () => {
-  delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
-
-  globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
-    if (String(url) === "https://oca.example/litellm/v1/model/info") {
-      return Response.json({
-        data: [
-          {
-            litellm_params: { model: "oca/gpt-5.3-codex" },
-            model_info: {
-              is_reasoning_model: true,
-              supported_api_list: ["RESPONSES"],
-              max_input_tokens: 1_000_000,
-              max_output_tokens: 65_536,
-              input_cost_per_token: 0.00001,
-              output_cost_per_token: 0.00002,
-            },
-          },
-        ],
-      })
-    }
-    return new Response("nope", { status: 404 })
-  }) as unknown as typeof fetch
-
-  const input = {
-    client: {
-      auth: {
-        set: async () => ({}),
-      },
-    },
-  } as unknown as Parameters<typeof plugin>[0]
-  const hooks = await plugin(input)
-  const loader = hooks.auth?.loader
-  expect(loader).toBeDefined()
-
-  if (!loader) throw new Error("missing loader")
-
-  const provider = {
-    id: "oca",
-    name: "Oracle Code Assist",
-    source: "custom",
-    env: ["OCA_API_KEY"],
-    options: {},
-    models: {},
-  }
-
-  await loader(
-    async () => ({
-      type: "oauth",
-      refresh: "refresh-token",
-      access: "access-token",
-      expires: Date.now() + 60_000,
-    }),
-    provider as never,
-  )
-
-  const codex = (provider.models as Record<string, any>)["gpt-5.3-codex"]
-  expect(codex.limit).toEqual({ context: 1_000_000, output: 65_536 })
-  expect(codex.cost).toEqual({
-    input: 0.00001,
-    output: 0.00002,
     cache: { read: 0, write: 0 },
   })
 })

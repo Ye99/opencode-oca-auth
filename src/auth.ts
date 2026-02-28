@@ -52,62 +52,85 @@ function baseUrl() {
   return process.env.OCA_BASE_URL
 }
 
-function baseUrls() {
+const isSafeBaseUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value)
+    if (url.protocol !== "https:" && url.protocol !== "http:") return false
+    // Require https for non-localhost to prevent token leakage over plain HTTP
+    if (url.protocol === "http:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost") return false
+    // Block cloud metadata and link-local ranges (169.254.x.x)
+    if (/^169\.254\./.test(url.hostname)) return false
+    return true
+  } catch {
+    return false
+  }
+}
+
+function baseUrls(): string[] {
   loadEnv()
   return (process.env.OCA_BASE_URLS ?? "")
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean)
+    .filter(isSafeBaseUrl)
     .concat(DEFAULT_OCA_BASE_URLS)
+}
+
+function parseModelsPayload(body: OcaModelsPayload): DiscoveredModel[] {
+  const models: Record<string, DiscoveredModel> = {}
+  for (const item of body.data ?? []) {
+    const raw = item.id ?? item.litellm_params?.model
+    if (!raw) continue
+    const id = raw.startsWith("oca/") ? raw.slice(4) : raw
+    if (!id) continue
+
+    const supportedApis = Array.isArray(item.model_info?.supported_api_list)
+      ? item.model_info.supported_api_list
+      : []
+    const supportsResponses = supportedApis.some(
+      (api) => String(api).toLowerCase() === "responses",
+    )
+    const npm = supportsResponses || id.includes("gpt-5") || id.includes("codex")
+      ? "@ai-sdk/openai"
+      : "@ai-sdk/openai-compatible"
+
+    models[id] = {
+      id,
+      reasoning: item.model_info?.is_reasoning_model ?? reasoning(id),
+      npm,
+    }
+  }
+  return Object.values(models)
 }
 
 async function discoverBaseUrl(token: string) {
   if (discoveredBaseUrl) return discoveredBaseUrl
 
-  for (const baseURL of baseUrls()) {
+  type Discovery = { baseURL: string; models: DiscoveredModel[] }
+
+  // Each base URL probes paths sequentially; all base URLs run in parallel.
+  // This cuts latency when early URLs are unreachable without firing every path simultaneously.
+  const probeUrl = async (baseURL: string): Promise<Discovery> => {
+    const normalized = baseURL.replace(/\/+$/, "")
     for (const suffix of MODEL_DISCOVERY_PATHS) {
-      const response = await fetch(`${baseURL.replace(/\/+$/, "")}${suffix}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+      const response = await fetch(`${normalized}${suffix}`, {
+        headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(10_000),
       }).catch(() => undefined)
       if (!response?.ok) continue
-
       const type = response.headers.get("content-type") ?? ""
-      const body = (type.includes("application/json")
-        ? await response.json()
-        : {}) as OcaModelsPayload
-
-      const models: Record<string, DiscoveredModel> = {}
-      for (const item of body.data ?? []) {
-        const raw = item.id ?? item.litellm_params?.model
-        if (!raw) continue
-        const id = raw.startsWith("oca/") ? raw.slice(4) : raw
-        if (!id) continue
-
-        const supportedApis = Array.isArray(item.model_info?.supported_api_list)
-          ? item.model_info.supported_api_list
-          : []
-        const supportsResponses = supportedApis.some(
-          (api) => String(api).toLowerCase() === "responses",
-        )
-        const npm = supportsResponses || id.includes("gpt-5") || id.includes("codex")
-          ? "@ai-sdk/openai"
-          : "@ai-sdk/openai-compatible"
-
-        models[id] = {
-          id,
-          reasoning: item.model_info?.is_reasoning_model ?? reasoning(id),
-          npm,
-        }
-      }
-
-      discoveredModels = Object.values(models)
-      discoveredBaseUrl = baseURL
-      return baseURL
+      const body = (type.includes("application/json") ? await response.json() : {}) as OcaModelsPayload
+      return { baseURL, models: parseModelsPayload(body) }
     }
+    throw new Error("no working endpoint")
   }
+
+  const result = await Promise.any(baseUrls().map(probeUrl)).catch(() => undefined)
+  if (!result) return
+
+  discoveredModels = result.models
+  discoveredBaseUrl = result.baseURL
+  return result.baseURL
 }
 
 function reasoning(id: string) {
@@ -116,7 +139,7 @@ function reasoning(id: string) {
   if (model.includes("gpt-5")) return true
   if (model.includes("reasoner")) return true
   if (model.includes("thinking")) return true
-  if (/^o[134](?:$|[-/])/.test(model)) return true
+  if (/^o[134](?:$|[-/])/.test(model)) return true // OpenAI o-series reasoning models (o1, o3, o4)
   if (model.includes("r1")) return true
   return false
 }

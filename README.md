@@ -14,16 +14,14 @@ node ./scripts/install-opencode-oca-auth.js ~/.config/opencode/opencode.json
 
 ### Development (live edits)
 
-Use `npm link` if you want helper commands in your `PATH`, then run the installer script directly:
+`npm link` adds `opencode-oca-auth-install` and `opencode-oca-auth-uninstall` to your `PATH`:
 
 ```bash
 git clone <this-repo>
 cd opencode-oca-auth
 npm link
-node ./scripts/install-opencode-oca-auth.js ~/.config/opencode/opencode.json
+opencode-oca-auth-install ~/.config/opencode/opencode.json
 ```
-
-Run the installer as a standalone command. Do not append other commands on the same line.
 
 The installer adds:
 
@@ -39,7 +37,7 @@ opencode models
 
 Run `opencode auth login` without extra arguments, then choose `oca` in the provider picker.
 
-Select an `oca:*` model and run prompts as usual.
+Select an `oca/*` model and run prompts as usual.
 
 To confirm the default OCA model works after setup, run:
 
@@ -67,10 +65,10 @@ Supported variables:
 
 - `OCA_IDCS_URL`
 - `OCA_CLIENT_ID`
-- `OCA_BASE_URLS`
+- `OCA_BASE_URL` — skip discovery and use this URL directly
+- `OCA_BASE_URLS` — comma-separated list of URLs to probe before the built-in defaults
 
 At runtime, shell environment variables override `.env` values.
-`OCA_IDCS_URL`, `OCA_CLIENT_ID`, and `OCA_BASE_URLS` are public configuration values and can be committed if needed.
 Avoid committing secret values (for example access tokens or API keys).
 
 ## Uninstall
@@ -83,14 +81,8 @@ This removes the plugin entry and the default OCA model entry.
 
 ## Development
 
-Use the following commands during local development:
-
 ```bash
 bun install
 bun test
 bun run typecheck
 ```
-
-- `bun install` installs project dependencies.
-- `bun test` runs the full test suite.
-- `bun run typecheck` checks TypeScript types without generating output files.

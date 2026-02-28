@@ -314,6 +314,31 @@ test("loader adds bearer authorization for oauth auth", async () => {
   expect(headers.get("Authorization")).toBe("Bearer access-token")
 })
 
+async function oauthMethodForTest() {
+  const input = {
+    client: {
+      auth: {
+        set: async () => ({}),
+      },
+    },
+  } as unknown as Parameters<typeof plugin>[0]
+  const hooks = await plugin(input)
+  const methods = hooks.auth?.methods ?? []
+  const oauth = methods.find((x) => x.type === "oauth")
+  if (!oauth || oauth.type !== "oauth") throw new Error("missing oauth method")
+  return oauth
+}
+
+async function withMutedOauthErrors(run: () => Promise<void>) {
+  const originalConsoleError = console.error
+  console.error = (() => {}) as typeof console.error
+  try {
+    await run()
+  } finally {
+    console.error = originalConsoleError
+  }
+}
+
 test("oauth authorize uses auto callback server and exchanges code with pkce", async () => {
   const calls: Array<{ url: RequestInfo | URL; init?: RequestInit }> = []
   globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -329,19 +354,7 @@ test("oauth authorize uses auto callback server and exchanges code with pkce", a
     })
   }) as unknown as typeof fetch
 
-  const input = {
-    client: {
-      auth: {
-        set: async () => ({}),
-      },
-    },
-  } as unknown as Parameters<typeof plugin>[0]
-  const hooks = await plugin(input)
-  const methods = hooks.auth?.methods ?? []
-  const oauth = methods.find((x) => x.type === "oauth")
-  expect(oauth).toBeDefined()
-
-  if (!oauth || oauth.type !== "oauth") throw new Error("missing oauth method")
+  const oauth = await oauthMethodForTest()
 
   const flow = await oauth.authorize({
     idcsUrl: "https://identity.example.com",
@@ -393,19 +406,7 @@ test("oauth authorize uses auto callback server and exchanges code with pkce", a
 })
 
 test("oauth authorize rejects invalid idcs url input", async () => {
-  const input = {
-    client: {
-      auth: {
-        set: async () => ({}),
-      },
-    },
-  } as unknown as Parameters<typeof plugin>[0]
-  const hooks = await plugin(input)
-  const methods = hooks.auth?.methods ?? []
-  const oauth = methods.find((x) => x.type === "oauth")
-  expect(oauth).toBeDefined()
-
-  if (!oauth || oauth.type !== "oauth") throw new Error("missing oauth method")
+  const oauth = await oauthMethodForTest()
 
   try {
     await oauth.authorize({
@@ -417,6 +418,142 @@ test("oauth authorize rejects invalid idcs url input", async () => {
     const message = error instanceof Error ? error.message : String(error)
     expect(message).toContain("Invalid IDCS URL")
   }
+})
+
+test("oauth callback returns failed and escapes provider error details", async () => {
+  const oauth = await oauthMethodForTest()
+  const originalConsoleError = console.error
+  const errorLogs: string[] = []
+  console.error = ((...args: unknown[]) => {
+    errorLogs.push(args.map((x) => String(x)).join(" "))
+  }) as typeof console.error
+
+  try {
+    const flow = await oauth.authorize({
+      idcsUrl: "https://identity.example.com",
+      clientId: "client-123",
+    })
+    if (flow.method !== "auto") throw new Error("unexpected code flow")
+
+    const authUrl = new URL(flow.url)
+    const redirectUri = authUrl.searchParams.get("redirect_uri")
+    const state = authUrl.searchParams.get("state")
+    if (!redirectUri || !state) throw new Error("missing redirect URI or state")
+
+    const pending = flow.callback()
+    const callbackUrl = new URL(redirectUri)
+    callbackUrl.searchParams.set("state", state)
+    callbackUrl.searchParams.set("error", "access_denied")
+    callbackUrl.searchParams.set("error_description", "<script>alert(1)</script>")
+
+    const callbackResponse = await realFetch(callbackUrl.toString())
+    expect(callbackResponse.status).toBe(200)
+    const body = await callbackResponse.text()
+    expect(body).toContain("&lt;script&gt;alert(1)&lt;/script&gt;")
+    expect(await pending).toEqual({ type: "failed" })
+    expect(errorLogs.some((line) => line.includes("OAuth callback failed"))).toBe(true)
+  } finally {
+    console.error = originalConsoleError
+  }
+})
+
+test("oauth callback returns failed when authorization code is missing", async () => {
+  await withMutedOauthErrors(async () => {
+    const oauth = await oauthMethodForTest()
+    const flow = await oauth.authorize({
+      idcsUrl: "https://identity.example.com",
+      clientId: "client-123",
+    })
+    if (flow.method !== "auto") throw new Error("unexpected code flow")
+
+    const authUrl = new URL(flow.url)
+    const redirectUri = authUrl.searchParams.get("redirect_uri")
+    const state = authUrl.searchParams.get("state")
+    if (!redirectUri || !state) throw new Error("missing redirect URI or state")
+
+    const pending = flow.callback()
+    const callbackUrl = new URL(redirectUri)
+    callbackUrl.searchParams.set("state", state)
+
+    const callbackResponse = await realFetch(callbackUrl.toString())
+    expect(callbackResponse.status).toBe(400)
+    expect(await callbackResponse.text()).toContain("Missing authorization code")
+    expect(await pending).toEqual({ type: "failed" })
+  })
+})
+
+test("oauth callback returns failed when callback state mismatches", async () => {
+  await withMutedOauthErrors(async () => {
+    const oauth = await oauthMethodForTest()
+    const flow = await oauth.authorize({
+      idcsUrl: "https://identity.example.com",
+      clientId: "client-123",
+    })
+    if (flow.method !== "auto") throw new Error("unexpected code flow")
+
+    const authUrl = new URL(flow.url)
+    const redirectUri = authUrl.searchParams.get("redirect_uri")
+    if (!redirectUri) throw new Error("missing redirect URI")
+
+    const pending = flow.callback()
+    const callbackUrl = new URL(redirectUri)
+    callbackUrl.searchParams.set("state", "wrong-state")
+    callbackUrl.searchParams.set("code", "code-123")
+
+    const callbackResponse = await realFetch(callbackUrl.toString())
+    expect(callbackResponse.status).toBe(400)
+    expect(await callbackResponse.text()).toContain("Invalid state")
+    expect(await pending).toEqual({ type: "failed" })
+  })
+})
+
+test("oauth callback endpoint returns 404 for non-callback path", async () => {
+  await withMutedOauthErrors(async () => {
+    const oauth = await oauthMethodForTest()
+    const flow = await oauth.authorize({
+      idcsUrl: "https://identity.example.com",
+      clientId: "client-123",
+    })
+    if (flow.method !== "auto") throw new Error("unexpected code flow")
+
+    const pending = flow.callback()
+    const notFoundResponse = await realFetch("http://127.0.0.1:48801/not-a-callback")
+    expect(notFoundResponse.status).toBe(404)
+
+    const authUrl = new URL(flow.url)
+    const redirectUri = authUrl.searchParams.get("redirect_uri")
+    const state = authUrl.searchParams.get("state")
+    if (!redirectUri || !state) throw new Error("missing redirect URI or state")
+
+    const cleanupUrl = new URL(redirectUri)
+    cleanupUrl.searchParams.set("state", state)
+    cleanupUrl.searchParams.set("error", "access_denied")
+    await realFetch(cleanupUrl.toString())
+
+    expect(await pending).toEqual({ type: "failed" })
+  })
+})
+
+test("oauth callback returns failed after timeout", async () => {
+  await withMutedOauthErrors(async () => {
+    const oauth = await oauthMethodForTest()
+    const realSetTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((handler: any, _timeout?: number, ...args: any[]) => {
+      return realSetTimeout(handler, 0, ...args)
+    }) as typeof setTimeout
+
+    try {
+      const flow = await oauth.authorize({
+        idcsUrl: "https://identity.example.com",
+        clientId: "client-123",
+      })
+      if (flow.method !== "auto") throw new Error("unexpected code flow")
+
+      expect(await flow.callback()).toEqual({ type: "failed" })
+    } finally {
+      globalThis.setTimeout = realSetTimeout
+    }
+  })
 })
 
 test("loader leaves api auth without oauth fetch injection", async () => {

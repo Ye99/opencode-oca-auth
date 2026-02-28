@@ -9,12 +9,19 @@ const DEFAULT_OCA_BASE_URLS = [
   "https://code-internal.aiservice.us-chicago-1.oci.oraclecloud.com/20250206/app/litellm",
   "https://code.aiservice.us-chicago-1.oci.oraclecloud.com/20250206/app/litellm",
 ]
-const MODEL_DISCOVERY_PATHS = ["/models", "/v1/models", "/v1/model/info"] as const
+// /v1/model/info is tried first because it returns rich model_info (context window,
+// output limits, cost). /models and /v1/models are fallbacks for endpoints that do
+// not implement the richer path.
+const MODEL_DISCOVERY_PATHS = ["/v1/model/info", "/models", "/v1/models"] as const
 
 type DiscoveredModel = {
   id: string
   reasoning: boolean
   npm: "@ai-sdk/openai" | "@ai-sdk/openai-compatible"
+  maxInputTokens?: number
+  maxOutputTokens?: number
+  inputCostPerToken?: number
+  outputCostPerToken?: number
 }
 
 type OcaModelsPayload = {
@@ -22,10 +29,19 @@ type OcaModelsPayload = {
     id?: string
     litellm_params?: {
       model?: string
+      /** mirrors context_window; populated by OCA's /v1/model/info endpoint */
+      max_tokens?: number
     }
     model_info?: {
       is_reasoning_model?: boolean
       supported_api_list?: string[]
+      context_window?: number
+      max_tokens?: number
+      max_input_tokens?: number
+      /** 0 is a sentinel meaning "unspecified"; treat as absent */
+      max_output_tokens?: number
+      input_cost_per_token?: number
+      output_cost_per_token?: number
     }
   }>
 }
@@ -94,10 +110,27 @@ function parseModelsPayload(body: OcaModelsPayload): DiscoveredModel[] {
       ? "@ai-sdk/openai"
       : "@ai-sdk/openai-compatible"
 
+    // Context window: OCA's /v1/model/info uses context_window; standard LiteLLM uses
+    // max_input_tokens or max_tokens in model_info; litellm_params.max_tokens is also
+    // populated by OCA and mirrors context_window.
+    const contextWindow =
+      item.model_info?.context_window
+      ?? item.model_info?.max_input_tokens
+      ?? item.model_info?.max_tokens
+      ?? item.litellm_params?.max_tokens
+
+    // max_output_tokens: 0 is a sentinel meaning "unspecified" in OCA's API.
+    const rawOutput = item.model_info?.max_output_tokens
+    const maxOutputTokens = rawOutput != null && rawOutput > 0 ? rawOutput : undefined
+
     models[id] = {
       id,
       reasoning: item.model_info?.is_reasoning_model ?? reasoning(id),
       npm,
+      maxInputTokens: contextWindow,
+      maxOutputTokens,
+      inputCostPerToken: item.model_info?.input_cost_per_token,
+      outputCostPerToken: item.model_info?.output_cost_per_token,
     }
   }
   return Object.values(models)
@@ -186,8 +219,15 @@ function upsertModels(provider: Provider | undefined, baseURL: string) {
           ...(existing?.capabilities?.output ?? {}),
         },
       },
-      cost: existing?.cost ?? { input: 0, output: 0, cache: { read: 0, write: 0 } },
-      limit: existing?.limit ?? { context: 128_000, output: 16_384 },
+      cost: existing?.cost ?? {
+        input: model.inputCostPerToken ?? 0,
+        output: model.outputCostPerToken ?? 0,
+        cache: { read: 0, write: 0 },
+      },
+      limit: existing?.limit ?? {
+        context: model.maxInputTokens ?? 128_000,
+        output: model.maxOutputTokens ?? 16_384,
+      },
       options: existing?.options ?? {},
       headers: existing?.headers ?? {},
     }

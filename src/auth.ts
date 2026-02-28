@@ -16,25 +16,26 @@ const MODEL_DISCOVERY_PATHS = ["/v1/model/info", "/models", "/v1/models"] as con
 
 type DiscoveredModel = {
   id: string
-  reasoning: boolean
-  npm: "@ai-sdk/openai" | "@ai-sdk/openai-compatible"
-  maxInputTokens?: number
-  maxOutputTokens?: number
-  inputCostPerToken?: number
-  outputCostPerToken?: number
+  endpoint: OcaModelEntry
 }
 
 type OcaModelsPayload = {
   data?: Array<{
+    [key: string]: unknown
     id?: string
+    model_name?: string
     litellm_params?: {
+      [key: string]: unknown
       model?: string
       /** mirrors context_window; populated by OCA's /v1/model/info endpoint */
       max_tokens?: number
     }
     model_info?: {
+      [key: string]: unknown
       is_reasoning_model?: boolean
       supported_api_list?: string[]
+      supports_vision?: boolean
+      reasoning_effort_options?: string[]
       context_window?: number
       max_tokens?: number
       max_input_tokens?: number
@@ -45,6 +46,8 @@ type OcaModelsPayload = {
     }
   }>
 }
+
+type OcaModelEntry = NonNullable<OcaModelsPayload["data"]>[number]
 
 type OAuthAuth = Extract<Auth, { type: "oauth" }> & { accountId?: string }
 
@@ -57,6 +60,90 @@ const errorMessage = (value: unknown) =>
 
 const withReloginHint = (message: string) =>
   message.includes("opencode auth login") ? message : `${message}. ${OCA_RELOGIN_HINT}`
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+type NpmPackage = "@ai-sdk/openai" | "@ai-sdk/openai-compatible"
+type Variants = Record<string, Record<string, unknown>>
+
+function variantsFromReasoningEfforts(
+  efforts: readonly string[] | undefined,
+  npm: NpmPackage,
+): Variants | undefined {
+  const normalized = (efforts ?? [])
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .map((value) => value.trim().toLowerCase())
+
+  if (normalized.length === 0) return
+
+  const variants: Record<string, Record<string, unknown>> = {}
+  for (const effort of normalized) {
+    variants[effort] = npm === "@ai-sdk/openai"
+      ? {
+          reasoningEffort: effort,
+          reasoningSummary: "auto",
+          include: ["reasoning.encrypted_content"],
+        }
+      : { reasoningEffort: effort }
+  }
+
+  return Object.keys(variants).length > 0 ? variants : undefined
+}
+
+function normalizeModelId(item: OcaModelEntry): string | undefined {
+  const raw = item.id ?? item.litellm_params?.model
+  if (!raw) return
+  const id = raw.startsWith("oca/") ? raw.slice(4) : raw
+  return id || undefined
+}
+
+function modelNameFromEndpoint(item: OcaModelEntry): string | undefined {
+  return typeof item.model_name === "string" && item.model_name.trim().length > 0
+    ? item.model_name.trim()
+    : undefined
+}
+
+function npmFromEndpoint(id: string, item: OcaModelEntry): NpmPackage {
+  const supportedApis = Array.isArray(item.model_info?.supported_api_list)
+    ? item.model_info.supported_api_list
+    : []
+  const supportsResponses = supportedApis.some(
+    (api) => String(api).toLowerCase() === "responses",
+  )
+  return supportsResponses || id.includes("gpt-5") || id.includes("codex")
+    ? "@ai-sdk/openai"
+    : "@ai-sdk/openai-compatible"
+}
+
+function reasoningFromEndpoint(id: string, item: OcaModelEntry): boolean {
+  return item.model_info?.is_reasoning_model ?? reasoning(id)
+}
+
+function supportsVisionFromEndpoint(item: OcaModelEntry): boolean | undefined {
+  return typeof item.model_info?.supports_vision === "boolean"
+    ? item.model_info.supports_vision
+    : undefined
+}
+
+function contextWindowFromEndpoint(item: OcaModelEntry): number | undefined {
+  return item.model_info?.context_window
+    ?? item.model_info?.max_input_tokens
+    ?? item.model_info?.max_tokens
+    ?? item.litellm_params?.max_tokens
+}
+
+function maxOutputTokensFromEndpoint(item: OcaModelEntry): number | undefined {
+  const rawOutput = item.model_info?.max_output_tokens
+  return rawOutput != null && rawOutput > 0 ? rawOutput : undefined
+}
+
+function costsFromEndpoint(item: OcaModelEntry): { input?: number; output?: number } {
+  return {
+    input: item.model_info?.input_cost_per_token,
+    output: item.model_info?.output_cost_per_token,
+  }
+}
 
 export function resetDiscoveryCache() {
   discoveredBaseUrl = undefined
@@ -95,42 +182,12 @@ function baseUrls(): string[] {
 function parseModelsPayload(body: OcaModelsPayload): DiscoveredModel[] {
   const models: Record<string, DiscoveredModel> = {}
   for (const item of body.data ?? []) {
-    const raw = item.id ?? item.litellm_params?.model
-    if (!raw) continue
-    const id = raw.startsWith("oca/") ? raw.slice(4) : raw
+    const id = normalizeModelId(item)
     if (!id) continue
-
-    const supportedApis = Array.isArray(item.model_info?.supported_api_list)
-      ? item.model_info.supported_api_list
-      : []
-    const supportsResponses = supportedApis.some(
-      (api) => String(api).toLowerCase() === "responses",
-    )
-    const npm = supportsResponses || id.includes("gpt-5") || id.includes("codex")
-      ? "@ai-sdk/openai"
-      : "@ai-sdk/openai-compatible"
-
-    // Context window: OCA's /v1/model/info uses context_window; standard LiteLLM uses
-    // max_input_tokens or max_tokens in model_info; litellm_params.max_tokens is also
-    // populated by OCA and mirrors context_window.
-    const contextWindow =
-      item.model_info?.context_window
-      ?? item.model_info?.max_input_tokens
-      ?? item.model_info?.max_tokens
-      ?? item.litellm_params?.max_tokens
-
-    // max_output_tokens: 0 is a sentinel meaning "unspecified" in OCA's API.
-    const rawOutput = item.model_info?.max_output_tokens
-    const maxOutputTokens = rawOutput != null && rawOutput > 0 ? rawOutput : undefined
 
     models[id] = {
       id,
-      reasoning: item.model_info?.is_reasoning_model ?? reasoning(id),
-      npm,
-      maxInputTokens: contextWindow,
-      maxOutputTokens,
-      inputCostPerToken: item.model_info?.input_cost_per_token,
-      outputCostPerToken: item.model_info?.output_cost_per_token,
+      endpoint: item,
     }
   }
   return Object.values(models)
@@ -182,30 +239,65 @@ function upsertModels(provider: Provider | undefined, baseURL: string) {
   if (!provider.models) return
   for (const model of discoveredModels ?? []) {
     const id = model.id
+    const endpoint = model.endpoint
+    const npm = npmFromEndpoint(id, endpoint)
+    const endpointVariants = variantsFromReasoningEfforts(
+      endpoint.model_info?.reasoning_effort_options,
+      npm,
+    )
+    const endpointName = modelNameFromEndpoint(endpoint)
+    const endpointReasoning = reasoningFromEndpoint(id, endpoint)
+    const endpointSupportsVision = supportsVisionFromEndpoint(endpoint)
+    const endpointContextWindow = contextWindowFromEndpoint(endpoint)
+    const endpointMaxOutput = maxOutputTokensFromEndpoint(endpoint)
+    const endpointCosts = costsFromEndpoint(endpoint)
     const existing = provider.models[id] as Provider["models"][string] | undefined
+    const existingRecord: Record<string, unknown> = isRecord(existing) ? existing : {}
+    const existingVariants = isRecord(existingRecord["variants"])
+      ? existingRecord["variants"]
+      : undefined
+    const finalVariants = existingVariants ?? endpointVariants
+    const existingOptions = isRecord(existing?.options) ? existing.options : {}
+    const existingOcaOptions = isRecord(existingOptions.oca) ? existingOptions.oca : {}
+    const existingEndpoint = isRecord(existingOcaOptions.endpoint)
+      ? existingOcaOptions.endpoint
+      : {}
+    const mergedEndpoint = {
+      ...existingEndpoint,
+      ...endpoint,
+    }
+    const options = model.endpoint
+      ? {
+          ...existingOptions,
+          oca: {
+            ...existingOcaOptions,
+            endpoint: mergedEndpoint,
+          },
+        }
+      : (existing?.options ?? {})
 
     provider.models[id] = {
       ...(existing ?? {}),
       id,
       providerID: "oca",
-      name: existing?.name ?? id,
+      name: existing?.name ?? endpointName ?? id,
       api: {
         ...(existing?.api ?? {}),
         id,
         url: baseURL,
-        npm: model.npm,
+        npm,
       },
       status: existing?.status ?? "active",
       capabilities: {
         ...(existing?.capabilities ?? {}),
         temperature: true,
-        reasoning: model.reasoning,
+        reasoning: endpointReasoning,
         attachment: true,
         toolcall: true,
         input: {
           text: true,
           audio: false,
-          image: true,
+          image: endpointSupportsVision ?? true,
           video: false,
           pdf: true,
           ...(existing?.capabilities?.input ?? {}),
@@ -220,16 +312,20 @@ function upsertModels(provider: Provider | undefined, baseURL: string) {
         },
       },
       cost: existing?.cost ?? {
-        input: model.inputCostPerToken ?? 0,
-        output: model.outputCostPerToken ?? 0,
+        input: endpointCosts.input ?? 0,
+        output: endpointCosts.output ?? 0,
         cache: { read: 0, write: 0 },
       },
       limit: existing?.limit ?? {
-        context: model.maxInputTokens ?? 128_000,
-        output: model.maxOutputTokens ?? 16_384,
+        context: endpointContextWindow ?? 128_000,
+        output: endpointMaxOutput ?? 16_384,
       },
-      options: existing?.options ?? {},
+      options,
       headers: existing?.headers ?? {},
+    }
+
+    if (finalVariants) {
+      ;(provider.models[id] as Record<string, unknown>).variants = finalVariants
     }
   }
 }

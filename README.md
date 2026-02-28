@@ -28,6 +28,14 @@ The installer adds:
 - this repository as an OpenCode plugin entry
 - `provider.oca.models.gpt-5.3-codex` to your OpenCode config
 
+## Model metadata precedence
+
+`opencode-oca-auth` uses OCA model-endpoint metadata as the default source of truth (for example, context window and output limits).
+If you set model fields explicitly in your OpenCode config (for example `provider.oca.models.<model>.limit`), those local values take precedence and override endpoint-provided metadata.
+
+Use local overrides only when you have a clear operational reason (such as controlled testing or a temporary workaround).
+In normal usage, leave these fields unset so model metadata stays aligned with upstream provider updates.
+
 ## Login and use OCA models
 
 ```bash

@@ -156,17 +156,22 @@ async function refresh(input: PluginInput, auth: OAuthAuth) {
 }
 
 export function createDiscoveryCache() {
+  const NEGATIVE_TTL_MS = 30_000
+
   let discovered: ProviderDiscovery | undefined
   let discoveryPromise: Promise<ProviderDiscovery | undefined> | undefined
+  let failedAt: number | undefined
 
   return {
     get result() { return discovered },
     async discover(token: string): Promise<string | undefined> {
       if (discovered) return discovered.baseURL
+      if (failedAt !== undefined && Date.now() < failedAt + NEGATIVE_TTL_MS) return undefined
       if (!discoveryPromise) {
         discoveryPromise = discoverProvider({ token, baseUrls: baseUrls() })
           .then((result) => {
             discovered = result
+            failedAt = result ? undefined : Date.now()
             return result
           })
           .finally(() => {

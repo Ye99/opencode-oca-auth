@@ -79,7 +79,9 @@ const isMain = (() => {
 if (isMain) {
   const file = process.argv[2] ?? DEFAULT_CONFIG
   const text = await readFile(file, "utf8").catch(() => "{}")
-  const current = JSON.parse(text || "{}")
+  let current
+  try { current = JSON.parse(text || "{}") }
+  catch (e) { console.error(`Error: ${file} contains invalid JSON: ${e.message}`); process.exit(1) }
   const pluginId = pathToFileURL(PACKAGE_ROOT).href
   const next = uninstallConfig(current, pluginId)
   await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8")

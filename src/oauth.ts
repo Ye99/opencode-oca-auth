@@ -8,6 +8,9 @@ import {
   exchangeCodeForTokens as exchangeCodeForTokensCore,
   refreshAccessToken as refreshAccessTokenCore,
   resolveOauthConfig,
+  isHttpUrl,
+  nonEmpty,
+  normalizeUrl,
   type OAuthConfigInput,
   type TokenResponse,
 } from "../packages/oca-auth-core"
@@ -50,22 +53,6 @@ const HTML_ERROR = (error: string) => `<!doctype html>
 
 let oauthServer: ReturnType<typeof Bun.serve> | undefined
 let pendingOAuth: PendingOAuth | undefined
-
-const normalizeUrl = (value: string) => value.replace(/\/+$/, "")
-
-const nonEmpty = (value?: string) => {
-  const next = value?.trim()
-  return next ? next : undefined
-}
-
-const isHttpUrl = (value: string) => {
-  try {
-    const parsed = new URL(value)
-    return parsed.protocol === "https:" || parsed.protocol === "http:"
-  } catch {
-    return false
-  }
-}
 
 const random = (length: number) => {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
@@ -189,6 +176,11 @@ const waitForOAuthCallback = (
   idcsUrl: string,
   clientId: string,
 ) => {
+  if (pendingOAuth) {
+    pendingOAuth.reject(new Error("Superseded by new OAuth flow"))
+    pendingOAuth = undefined
+  }
+
   return new Promise<TokenResponse>((resolve, reject) => {
     const timeout = setTimeout(() => {
       if (!pendingOAuth) return

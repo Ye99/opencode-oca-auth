@@ -48,7 +48,7 @@ test("loader resolves base url from OCA_BASE_URLS env list", async () => {
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     {} as never,
   )
@@ -86,7 +86,7 @@ test("loader resolves oca base url from built-in endpoints", async () => {
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     {} as never,
   )
@@ -138,7 +138,7 @@ test("loader populates provider models from oca models endpoint", async () => {
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     provider as never,
   )
@@ -193,7 +193,7 @@ test("loader upgrades empty existing model entries", async () => {
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     provider as never,
   )
@@ -261,7 +261,7 @@ test("loader refreshes discovered metadata for non-empty existing entries", asyn
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     provider as never,
   )
@@ -301,7 +301,7 @@ test("loader adds bearer authorization for oauth auth", async () => {
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     {} as never,
   )
@@ -766,7 +766,7 @@ test("loader uses model limit from api model_info when available", async () => {
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     provider as never,
   )
@@ -825,7 +825,7 @@ test("loader uses cost from api model_info when available", async () => {
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     provider as never,
   )
@@ -886,7 +886,7 @@ test("loader falls back to hardcoded defaults when api lacks limit and cost fiel
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     provider as never,
   )
@@ -953,7 +953,7 @@ test("loader preserves user-configured limit over api-discovered limit", async (
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     provider as never,
   )
@@ -1007,7 +1007,7 @@ test("loader uses context_window field from model_info (OCA primary field)", asy
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     provider as never,
   )
@@ -1059,7 +1059,7 @@ test("loader treats max_output_tokens=0 as sentinel and falls back to hardcoded 
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     provider as never,
   )
@@ -1122,7 +1122,7 @@ test("loader prefers /v1/model/info over /models when both succeed", async () =>
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     provider as never,
   )
@@ -1181,7 +1181,7 @@ test("loader uses model_name/supports_vision/reasoning_effort_options from endpo
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     provider as never,
   )
@@ -1242,7 +1242,7 @@ test("loader preserves unknown endpoint fields under options.oca.endpoint", asyn
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     provider as never,
   )
@@ -1306,7 +1306,7 @@ test("loader merges endpoint payload without dropping user endpoint annotations"
       type: "oauth",
       refresh: "refresh-token",
       access: "access-token",
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 300_000,
     }),
     provider as never,
   )

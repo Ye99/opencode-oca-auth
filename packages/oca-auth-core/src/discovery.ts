@@ -9,35 +9,13 @@ import type {
   ResolvedModelVariants,
   ResolvedOcaModel,
 } from "./types"
+import { isHttpUrl, isSafeBaseUrl } from "./url-utils"
 
 type DiscoverProviderOptions = {
   token: string
   baseUrls?: string[]
   fetchImpl?: typeof fetch
   timeoutMs?: number
-}
-
-const isHttpUrl = (value: string) => {
-  try {
-    const parsed = new URL(value)
-    return parsed.protocol === "https:" || parsed.protocol === "http:"
-  } catch {
-    return false
-  }
-}
-
-const isSafeBaseUrl = (value: string): boolean => {
-  try {
-    const url = new URL(value)
-    if (url.protocol !== "https:" && url.protocol !== "http:") return false
-    if (url.protocol === "http:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost") {
-      return false
-    }
-    if (/^169\.254\./.test(url.hostname)) return false
-    return true
-  } catch {
-    return false
-  }
 }
 
 function normalizeModelId(item: OcaModelEntry): string | undefined {
@@ -160,12 +138,12 @@ export function parseModelsPayload(body: OcaModelsPayload): ResolvedOcaModel[] {
 }
 
 function candidateBaseUrls(baseUrls?: string[]) {
-  return (baseUrls ?? [])
+  const user = (baseUrls ?? [])
     .map((value) => value.trim())
     .filter(Boolean)
     .filter(isHttpUrl)
     .filter(isSafeBaseUrl)
-    .concat(DEFAULT_OCA_BASE_URLS)
+  return user.length > 0 ? user : [...DEFAULT_OCA_BASE_URLS]
 }
 
 export async function discoverProvider({
@@ -180,12 +158,17 @@ export async function discoverProvider({
       const response = await fetchImpl(`${normalized}${suffix}`, {
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(timeoutMs),
+        redirect: "manual",
       }).catch(() => undefined)
       if (!response?.ok) continue
       const type = response.headers.get("content-type") ?? ""
-      const body = (type.includes("application/json")
-        ? await response.json()
-        : {}) as OcaModelsPayload
+      if (!type.includes("application/json")) continue
+      let body: OcaModelsPayload
+      try {
+        body = (await response.json()) as OcaModelsPayload
+      } catch {
+        continue
+      }
       return { baseURL, models: parseModelsPayload(body) }
     }
     throw new Error("no working endpoint")

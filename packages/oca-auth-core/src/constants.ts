@@ -11,3 +11,5 @@ export const DEFAULT_OCA_BASE_URLS = [
 ] as const
 
 export const MODEL_DISCOVERY_PATHS = ["/v1/model/info", "/models", "/v1/models"] as const
+
+export const TOKEN_EXPIRY_BUFFER_MS = 60_000

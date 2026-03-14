@@ -113,7 +113,7 @@ test("refresh token reports status without detail when body is empty", async () 
   }
 })
 
-test("refresh token omits detail when JSON payload has no oauth error fields", async () => {
+test("refresh token includes compact body when JSON payload has no oauth error fields", async () => {
   globalThis.fetch = (async () => {
     return Response.json({}, { status: 503 })
   }) as unknown as typeof fetch
@@ -124,7 +124,7 @@ test("refresh token omits detail when JSON payload has no oauth error fields", a
     throw new Error("expected refreshAccessToken to fail")
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    expect(message).toBe("Token refresh failed: 503")
+    expect(message).toBe("Token refresh failed: 503 ({})")
   }
 })
 
@@ -178,7 +178,7 @@ test("exchange code accepts JSON message field as oauth error detail", async () 
   }
 })
 
-test("exchange code omits detail when JSON payload has no oauth error fields", async () => {
+test("exchange code includes compact body when JSON payload has no oauth error fields", async () => {
   globalThis.fetch = (async () => {
     return Response.json({}, { status: 401 })
   }) as unknown as typeof fetch
@@ -195,7 +195,7 @@ test("exchange code omits detail when JSON payload has no oauth error fields", a
     throw new Error("expected exchangeCodeForTokens to fail")
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    expect(message).toBe("Token exchange failed: 401")
+    expect(message).toBe("Token exchange failed: 401 ({})")
   }
 })
 

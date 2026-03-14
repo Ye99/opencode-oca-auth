@@ -1,42 +1,28 @@
 import { DEFAULT_IDCS_CLIENT_ID, DEFAULT_IDCS_URL } from "./constants"
 import type { OAuthConfigInput, TokenResponse } from "./types"
-
-const normalizeUrl = (value: string) => value.replace(/\/+$/, "")
-
-const nonEmpty = (value?: string) => {
-  const next = value?.trim()
-  return next ? next : undefined
-}
-
-const isHttpUrl = (value: string) => {
-  try {
-    const parsed = new URL(value)
-    return parsed.protocol === "https:" || parsed.protocol === "http:"
-  } catch {
-    return false
-  }
-}
+import { isHttpUrl, nonEmpty, normalizeUrl } from "./url-utils"
 
 const readTokenError = async (response: Response) => {
+  const text = await response.text().catch(() => "")
+  if (!text) return
+
   const type = response.headers.get("content-type") ?? ""
   if (type.includes("application/json")) {
-    const payload = (await response.json().catch(() => undefined)) as
-      | {
-          error?: string
-          error_description?: string
-          message?: string
-        }
-      | undefined
-    if (payload) {
+    try {
+      const payload = JSON.parse(text) as {
+        error?: string
+        error_description?: string
+        message?: string
+      }
       const detail = payload.error_description ?? payload.message
       if (payload.error && detail) return `${payload.error}: ${detail}`
       if (payload.error) return payload.error
       if (detail) return detail
+    } catch {
+      /* fall through to raw text */
     }
   }
 
-  const text = await response.text().catch(() => "")
-  if (!text) return
   const compact = text.replace(/\s+/g, " ").trim()
   if (!compact) return
   return compact.slice(0, 240)

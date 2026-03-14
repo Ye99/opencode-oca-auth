@@ -1,8 +1,8 @@
 import type { Auth, Provider } from "@opencode-ai/sdk"
 import type { PluginInput } from "@opencode-ai/plugin"
 
-import type { ProviderDiscovery } from "../packages/oca-auth-core"
-import { discoverProvider } from "../packages/oca-auth-core"
+import type { ProviderDiscovery, ResolvedOcaModel } from "../packages/oca-auth-core"
+import { discoverProvider, isSafeBaseUrl, isRecord, TOKEN_EXPIRY_BUFFER_MS } from "../packages/oca-auth-core"
 import { loadEnv } from "./env"
 import { oauthConfig, refreshAccessToken } from "./oauth"
 
@@ -10,7 +10,6 @@ export const OAUTH_DUMMY_KEY = "opencode-oauth-dummy-key"
 
 type OAuthAuth = Extract<Auth, { type: "oauth" }> & { accountId?: string }
 
-let discovered: ProviderDiscovery | undefined
 const OCA_RELOGIN_HINT = "Run `opencode auth login`, then select `oca`, to refresh credentials."
 
 const errorMessage = (value: unknown) =>
@@ -19,30 +18,14 @@ const errorMessage = (value: unknown) =>
 const withReloginHint = (message: string) =>
   message.includes("opencode auth login") ? message : `${message}. ${OCA_RELOGIN_HINT}`
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
-
-export function resetDiscoveryCache() {
-  discovered = undefined
-}
+/** @deprecated State is now scoped inside authLoader — this is a no-op kept for backward compatibility. */
+export function resetDiscoveryCache() {}
 
 function baseUrl() {
   loadEnv()
-  return process.env.OCA_BASE_URL
-}
-
-const isSafeBaseUrl = (value: string): boolean => {
-  try {
-    const url = new URL(value)
-    if (url.protocol !== "https:" && url.protocol !== "http:") return false
-    if (url.protocol === "http:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost") {
-      return false
-    }
-    if (/^169\.254\./.test(url.hostname)) return false
-    return true
-  } catch {
-    return false
-  }
+  const value = process.env.OCA_BASE_URL
+  if (value && !isSafeBaseUrl(value)) return undefined
+  return value
 }
 
 function baseUrls(): string[] {
@@ -54,21 +37,10 @@ function baseUrls(): string[] {
     .filter(isSafeBaseUrl)
 }
 
-async function discoverBaseUrl(token: string) {
-  if (discovered) return discovered.baseURL
-
-  discovered = await discoverProvider({
-    token,
-    baseUrls: baseUrls(),
-  })
-
-  return discovered?.baseURL
-}
-
-function upsertModels(provider: Provider | undefined, baseURL: string) {
+function upsertModels(provider: Provider | undefined, baseURL: string, models: ResolvedOcaModel[]) {
   if (!provider?.models) return
 
-  for (const model of discovered?.models ?? []) {
+  for (const model of models) {
     const existing = provider.models[model.id] as Provider["models"][string] | undefined
     const existingRecord: Record<string, unknown> = isRecord(existing) ? existing : {}
     const existingVariants = isRecord(existingRecord.variants)
@@ -147,21 +119,6 @@ function upsertModels(provider: Provider | undefined, baseURL: string) {
   }
 }
 
-async function resolveBaseUrl(auth: Auth) {
-  const fromEnv = baseUrl()
-  if (fromEnv) return fromEnv
-
-  if (auth.type === "oauth") {
-    if (!auth.access) return
-    return discoverBaseUrl(auth.access)
-  }
-
-  if (auth.type === "api") {
-    if (!auth.key) return
-    return discoverBaseUrl(auth.key)
-  }
-}
-
 async function save(
   input: PluginInput,
   previous: OAuthAuth,
@@ -194,17 +151,50 @@ async function refresh(input: PluginInput, auth: OAuthAuth) {
     const tokens = await refreshAccessToken(cfg.idcsUrl, cfg.clientId, auth.refresh)
     return save(input, auth, tokens)
   } catch (error) {
-    throw new Error(withReloginHint(errorMessage(error)))
+    throw new Error(withReloginHint(errorMessage(error)), { cause: error })
   }
 }
 
 export function authLoader(input: PluginInput) {
+  let discovered: ProviderDiscovery | undefined
+  let discoveryPromise: Promise<ProviderDiscovery | undefined> | undefined
+
+  const discoverBaseUrl = async (token: string) => {
+    if (discovered) return discovered.baseURL
+    if (!discoveryPromise) {
+      discoveryPromise = discoverProvider({ token, baseUrls: baseUrls() })
+        .then((result) => {
+          discovered = result
+          return result
+        })
+        .finally(() => {
+          discoveryPromise = undefined
+        })
+    }
+    return (await discoveryPromise)?.baseURL
+  }
+
+  const resolveBaseUrl = async (auth: Auth) => {
+    const fromEnv = baseUrl()
+    if (fromEnv) return fromEnv
+
+    if (auth.type === "oauth") {
+      if (!auth.access) return
+      return discoverBaseUrl(auth.access)
+    }
+
+    if (auth.type === "api") {
+      if (!auth.key) return
+      return discoverBaseUrl(auth.key)
+    }
+  }
+
   return async (getAuth: () => Promise<Auth>, provider?: Provider) => {
     const auth = await getAuth()
 
     const token = auth.type === "oauth" ? auth.access : auth.type === "api" ? auth.key : undefined
     const discoveredBaseUrl = token ? await discoverBaseUrl(token) : undefined
-    if (discoveredBaseUrl) upsertModels(provider, discoveredBaseUrl)
+    if (discoveredBaseUrl && discovered) upsertModels(provider, discoveredBaseUrl, discovered.models)
 
     if (auth.type !== "oauth") {
       const url = await resolveBaseUrl(auth)
@@ -213,7 +203,7 @@ export function authLoader(input: PluginInput) {
     }
 
     const validToken = (value: OAuthAuth | undefined): value is OAuthAuth =>
-      Boolean(value?.access) && (value?.expires ?? 0) > Date.now()
+      Boolean(value?.access) && (value?.expires ?? 0) > Date.now() + TOKEN_EXPIRY_BUFFER_MS
     const newest = (a: OAuthAuth | undefined, b: OAuthAuth | undefined) => {
       if (!a) return b
       if (!b) return a

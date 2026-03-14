@@ -57,10 +57,16 @@ let pendingOAuth: PendingOAuth | undefined
 
 const random = (length: number) => {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
-  const bytes = crypto.getRandomValues(new Uint8Array(length))
-  return Array.from(bytes)
-    .map((x) => chars[x % chars.length])
-    .join("")
+  const limit = 256 - (256 % chars.length) // 252 — reject bytes >= limit to eliminate modulo bias
+  const result: string[] = []
+  while (result.length < length) {
+    const bytes = crypto.getRandomValues(new Uint8Array(length - result.length))
+    for (const b of bytes) {
+      if (b < limit) result.push(chars[b % chars.length])
+      if (result.length === length) break
+    }
+  }
+  return result.join("")
 }
 
 const encode = (buffer: ArrayBuffer) => {

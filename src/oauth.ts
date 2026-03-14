@@ -1,12 +1,16 @@
+import {
+  OAUTH_CALLBACK_TIMEOUT_MS,
+  OAUTH_PORT,
+  OAUTH_REDIRECT_PATH,
+} from "./constants"
 import { loadEnv } from "./env"
-import { DEFAULT_IDCS_CLIENT_ID, DEFAULT_IDCS_URL, OAUTH_CALLBACK_TIMEOUT_MS, OAUTH_PORT, OAUTH_REDIRECT_PATH } from "./constants"
-
-type TokenResponse = {
-  access_token: string
-  refresh_token?: string
-  token_type: string
-  expires_in?: number
-}
+import {
+  exchangeCodeForTokens as exchangeCodeForTokensCore,
+  refreshAccessToken as refreshAccessTokenCore,
+  resolveOauthConfig,
+  type OAuthConfigInput,
+  type TokenResponse,
+} from "../packages/oca-auth-core"
 
 type Pkce = {
   verifier: string
@@ -63,31 +67,6 @@ const isHttpUrl = (value: string) => {
   }
 }
 
-const readTokenError = async (response: Response) => {
-  const type = response.headers.get("content-type") ?? ""
-  if (type.includes("application/json")) {
-    const payload = (await response.json().catch(() => undefined)) as
-      | {
-          error?: string
-          error_description?: string
-          message?: string
-        }
-      | undefined
-    if (payload) {
-      const detail = payload.error_description ?? payload.message
-      if (payload.error && detail) return `${payload.error}: ${detail}`
-      if (payload.error) return payload.error
-      if (detail) return detail
-    }
-  }
-
-  const text = await response.text().catch(() => "")
-  if (!text) return
-  const compact = text.replace(/\s+/g, " ").trim()
-  if (!compact) return
-  return compact.slice(0, 240)
-}
-
 const random = (length: number) => {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
   const bytes = crypto.getRandomValues(new Uint8Array(length))
@@ -132,85 +111,13 @@ const authorizeUrl = (idcsUrl: string, clientId: string, codes: Pkce, value: str
   return `${idcsUrl}/oauth2/v1/authorize?${params.toString()}`
 }
 
-export function oauthConfig(value?: { enterpriseUrl?: string; accountId?: string }) {
+export function oauthConfig(value?: OAuthConfigInput) {
   loadEnv()
-  const idcsUrl = nonEmpty(value?.enterpriseUrl)
-    ?? nonEmpty(process.env.OCA_IDCS_URL)
-    ?? DEFAULT_IDCS_URL
-  const clientId = nonEmpty(value?.accountId)
-    ?? nonEmpty(process.env.OCA_CLIENT_ID)
-    ?? DEFAULT_IDCS_CLIENT_ID
-  return {
-    idcsUrl: normalizeUrl(idcsUrl),
-    clientId,
-  }
+  return resolveOauthConfig(value, process.env)
 }
 
-export async function refreshAccessToken(idcsUrl: string, clientId: string, refresh: string): Promise<TokenResponse> {
-  const base = normalizeUrl(idcsUrl)
-  if (!isHttpUrl(base)) {
-    throw new Error(`Invalid IDCS URL: ${idcsUrl}`)
-  }
-
-  const response = await fetch(`${base}/oauth2/v1/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: refresh,
-      client_id: clientId,
-    }).toString(),
-  })
-
-  if (!response.ok) {
-    const detail = await readTokenError(response)
-    throw new Error(
-      detail
-        ? `Token refresh failed: ${response.status} (${detail})`
-        : `Token refresh failed: ${response.status}`,
-    )
-  }
-  return (await response.json()) as TokenResponse
-}
-
-export async function exchangeCodeForTokens(
-  idcsUrl: string,
-  clientId: string,
-  code: string,
-  value: string,
-  verifier: string,
-): Promise<TokenResponse> {
-  const base = normalizeUrl(idcsUrl)
-  if (!isHttpUrl(base)) {
-    throw new Error(`Invalid IDCS URL: ${idcsUrl}`)
-  }
-
-  const response = await fetch(`${base}/oauth2/v1/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: value,
-      client_id: clientId,
-      code_verifier: verifier,
-    }).toString(),
-  })
-
-  if (!response.ok) {
-    const detail = await readTokenError(response)
-    throw new Error(
-      detail
-        ? `Token exchange failed: ${response.status} (${detail})`
-        : `Token exchange failed: ${response.status}`,
-    )
-  }
-  return (await response.json()) as TokenResponse
-}
+export const refreshAccessToken = refreshAccessTokenCore
+export const exchangeCodeForTokens = exchangeCodeForTokensCore
 
 const startOAuthServer = () => {
   if (oauthServer) return
@@ -276,7 +183,12 @@ const stopOAuthServer = () => {
   oauthServer = undefined
 }
 
-const waitForOAuthCallback = (codes: Pkce, value: string, idcsUrl: string, clientId: string) => {
+const waitForOAuthCallback = (
+  codes: Pkce,
+  value: string,
+  idcsUrl: string,
+  clientId: string,
+) => {
   return new Promise<TokenResponse>((resolve, reject) => {
     const timeout = setTimeout(() => {
       if (!pendingOAuth) return

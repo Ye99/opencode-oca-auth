@@ -2,6 +2,9 @@
 
 Standalone OpenCode plugin for OCA authentication and model setup.
 
+This repository now includes a shared internal package at `packages/oca-auth-core`.
+It holds reusable OCA OAuth and model-discovery logic so the OpenCode plugin can stay thin and future adapters can share the same behavior.
+
 ## Install
 
 ### Standard
@@ -92,5 +95,6 @@ This removes the plugin entry and the default OCA model entry.
 ```bash
 bun install
 bun test
+bun test test/opencode-cli.e2e.test.ts
 bun run typecheck
 ```

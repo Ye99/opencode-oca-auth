@@ -9,5 +9,12 @@
     "allowJs": true,
     "resolveJsonModule": true
   },
-  "include": ["index.ts", "scripts/**/*.js", "test/**/*.ts", "config/**/*.json"]
+  "include": [
+    "index.ts",
+    "packages/**/*.ts",
+    "scripts/**/*.js",
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "config/**/*.json"
+  ]
 }

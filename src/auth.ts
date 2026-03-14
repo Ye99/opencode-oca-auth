@@ -1,58 +1,16 @@
 import type { Auth, Provider } from "@opencode-ai/sdk"
 import type { PluginInput } from "@opencode-ai/plugin"
 
-import { oauthConfig, refreshAccessToken } from "./oauth"
+import type { ProviderDiscovery } from "../packages/oca-auth-core"
+import { discoverProvider } from "../packages/oca-auth-core"
 import { loadEnv } from "./env"
+import { oauthConfig, refreshAccessToken } from "./oauth"
 
 export const OAUTH_DUMMY_KEY = "opencode-oauth-dummy-key"
-const DEFAULT_OCA_BASE_URLS = [
-  "https://code-internal.aiservice.us-chicago-1.oci.oraclecloud.com/20250206/app/litellm",
-  "https://code.aiservice.us-chicago-1.oci.oraclecloud.com/20250206/app/litellm",
-]
-// /v1/model/info is tried first because it returns rich model_info (context window,
-// output limits, cost). /models and /v1/models are fallbacks for endpoints that do
-// not implement the richer path.
-const MODEL_DISCOVERY_PATHS = ["/v1/model/info", "/models", "/v1/models"] as const
-
-type DiscoveredModel = {
-  id: string
-  endpoint: OcaModelEntry
-}
-
-type OcaModelsPayload = {
-  data?: Array<{
-    [key: string]: unknown
-    id?: string
-    model_name?: string
-    litellm_params?: {
-      [key: string]: unknown
-      model?: string
-      /** mirrors context_window; populated by OCA's /v1/model/info endpoint */
-      max_tokens?: number
-    }
-    model_info?: {
-      [key: string]: unknown
-      is_reasoning_model?: boolean
-      supported_api_list?: string[]
-      supports_vision?: boolean
-      reasoning_effort_options?: string[]
-      context_window?: number
-      max_tokens?: number
-      max_input_tokens?: number
-      /** 0 is a sentinel meaning "unspecified"; treat as absent */
-      max_output_tokens?: number
-      input_cost_per_token?: number
-      output_cost_per_token?: number
-    }
-  }>
-}
-
-type OcaModelEntry = NonNullable<OcaModelsPayload["data"]>[number]
 
 type OAuthAuth = Extract<Auth, { type: "oauth" }> & { accountId?: string }
 
-let discoveredBaseUrl: string | undefined
-let discoveredModels: DiscoveredModel[] | undefined
+let discovered: ProviderDiscovery | undefined
 const OCA_RELOGIN_HINT = "Run `opencode auth login`, then select `oca`, to refresh credentials."
 
 const errorMessage = (value: unknown) =>
@@ -64,90 +22,8 @@ const withReloginHint = (message: string) =>
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
-type NpmPackage = "@ai-sdk/openai" | "@ai-sdk/openai-compatible"
-type Variants = Record<string, Record<string, unknown>>
-
-function variantsFromReasoningEfforts(
-  efforts: readonly string[] | undefined,
-  npm: NpmPackage,
-): Variants | undefined {
-  const normalized = (efforts ?? [])
-    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-    .map((value) => value.trim().toLowerCase())
-
-  if (normalized.length === 0) return
-
-  const variants: Record<string, Record<string, unknown>> = {}
-  for (const effort of normalized) {
-    variants[effort] = npm === "@ai-sdk/openai"
-      ? {
-          reasoningEffort: effort,
-          reasoningSummary: "auto",
-          include: ["reasoning.encrypted_content"],
-        }
-      : { reasoningEffort: effort }
-  }
-
-  return Object.keys(variants).length > 0 ? variants : undefined
-}
-
-function normalizeModelId(item: OcaModelEntry): string | undefined {
-  const raw = item.id ?? item.litellm_params?.model
-  if (!raw) return
-  const id = raw.startsWith("oca/") ? raw.slice(4) : raw
-  return id || undefined
-}
-
-function modelNameFromEndpoint(item: OcaModelEntry): string | undefined {
-  return typeof item.model_name === "string" && item.model_name.trim().length > 0
-    ? item.model_name.trim()
-    : undefined
-}
-
-function npmFromEndpoint(id: string, item: OcaModelEntry): NpmPackage {
-  const supportedApis = Array.isArray(item.model_info?.supported_api_list)
-    ? item.model_info.supported_api_list
-    : []
-  const supportsResponses = supportedApis.some(
-    (api) => String(api).toLowerCase() === "responses",
-  )
-  return supportsResponses || id.includes("gpt-5") || id.includes("codex")
-    ? "@ai-sdk/openai"
-    : "@ai-sdk/openai-compatible"
-}
-
-function reasoningFromEndpoint(id: string, item: OcaModelEntry): boolean {
-  return item.model_info?.is_reasoning_model ?? reasoning(id)
-}
-
-function supportsVisionFromEndpoint(item: OcaModelEntry): boolean | undefined {
-  return typeof item.model_info?.supports_vision === "boolean"
-    ? item.model_info.supports_vision
-    : undefined
-}
-
-function contextWindowFromEndpoint(item: OcaModelEntry): number | undefined {
-  return item.model_info?.context_window
-    ?? item.model_info?.max_input_tokens
-    ?? item.model_info?.max_tokens
-    ?? item.litellm_params?.max_tokens
-}
-
-function maxOutputTokensFromEndpoint(item: OcaModelEntry): number | undefined {
-  const rawOutput = item.model_info?.max_output_tokens
-  return rawOutput != null && rawOutput > 0 ? rawOutput : undefined
-}
-
-function costsFromEndpoint(item: OcaModelEntry): { input?: number; output?: number } {
-  return {
-    input: item.model_info?.input_cost_per_token,
-    output: item.model_info?.output_cost_per_token,
-  }
-}
-
 export function resetDiscoveryCache() {
-  discoveredBaseUrl = undefined
-  discoveredModels = undefined
+  discovered = undefined
 }
 
 function baseUrl() {
@@ -159,9 +35,9 @@ const isSafeBaseUrl = (value: string): boolean => {
   try {
     const url = new URL(value)
     if (url.protocol !== "https:" && url.protocol !== "http:") return false
-    // Require https for non-localhost to prevent token leakage over plain HTTP
-    if (url.protocol === "http:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost") return false
-    // Block cloud metadata and link-local ranges (169.254.x.x)
+    if (url.protocol === "http:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost") {
+      return false
+    }
     if (/^169\.254\./.test(url.hostname)) return false
     return true
   } catch {
@@ -176,87 +52,29 @@ function baseUrls(): string[] {
     .map((x) => x.trim())
     .filter(Boolean)
     .filter(isSafeBaseUrl)
-    .concat(DEFAULT_OCA_BASE_URLS)
-}
-
-function parseModelsPayload(body: OcaModelsPayload): DiscoveredModel[] {
-  const models: Record<string, DiscoveredModel> = {}
-  for (const item of body.data ?? []) {
-    const id = normalizeModelId(item)
-    if (!id) continue
-
-    models[id] = {
-      id,
-      endpoint: item,
-    }
-  }
-  return Object.values(models)
 }
 
 async function discoverBaseUrl(token: string) {
-  if (discoveredBaseUrl) return discoveredBaseUrl
+  if (discovered) return discovered.baseURL
 
-  type Discovery = { baseURL: string; models: DiscoveredModel[] }
+  discovered = await discoverProvider({
+    token,
+    baseUrls: baseUrls(),
+  })
 
-  // Each base URL probes paths sequentially; all base URLs run in parallel.
-  // This cuts latency when early URLs are unreachable without firing every path simultaneously.
-  const probeUrl = async (baseURL: string): Promise<Discovery> => {
-    const normalized = baseURL.replace(/\/+$/, "")
-    for (const suffix of MODEL_DISCOVERY_PATHS) {
-      const response = await fetch(`${normalized}${suffix}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(10_000),
-      }).catch(() => undefined)
-      if (!response?.ok) continue
-      const type = response.headers.get("content-type") ?? ""
-      const body = (type.includes("application/json") ? await response.json() : {}) as OcaModelsPayload
-      return { baseURL, models: parseModelsPayload(body) }
-    }
-    throw new Error("no working endpoint")
-  }
-
-  const result = await Promise.any(baseUrls().map(probeUrl)).catch(() => undefined)
-  if (!result) return
-
-  discoveredModels = result.models
-  discoveredBaseUrl = result.baseURL
-  return result.baseURL
-}
-
-function reasoning(id: string) {
-  const model = id.toLowerCase()
-  if (model.includes("codex")) return true
-  if (model.includes("gpt-5")) return true
-  if (model.includes("reasoner")) return true
-  if (model.includes("thinking")) return true
-  if (/^o[134](?:$|[-/])/.test(model)) return true // OpenAI o-series reasoning models (o1, o3, o4)
-  if (model.includes("r1")) return true
-  return false
+  return discovered?.baseURL
 }
 
 function upsertModels(provider: Provider | undefined, baseURL: string) {
-  if (!provider) return
-  if (!provider.models) return
-  for (const model of discoveredModels ?? []) {
-    const id = model.id
-    const endpoint = model.endpoint
-    const npm = npmFromEndpoint(id, endpoint)
-    const endpointVariants = variantsFromReasoningEfforts(
-      endpoint.model_info?.reasoning_effort_options,
-      npm,
-    )
-    const endpointName = modelNameFromEndpoint(endpoint)
-    const endpointReasoning = reasoningFromEndpoint(id, endpoint)
-    const endpointSupportsVision = supportsVisionFromEndpoint(endpoint)
-    const endpointContextWindow = contextWindowFromEndpoint(endpoint)
-    const endpointMaxOutput = maxOutputTokensFromEndpoint(endpoint)
-    const endpointCosts = costsFromEndpoint(endpoint)
-    const existing = provider.models[id] as Provider["models"][string] | undefined
+  if (!provider?.models) return
+
+  for (const model of discovered?.models ?? []) {
+    const existing = provider.models[model.id] as Provider["models"][string] | undefined
     const existingRecord: Record<string, unknown> = isRecord(existing) ? existing : {}
-    const existingVariants = isRecord(existingRecord["variants"])
-      ? existingRecord["variants"]
+    const existingVariants = isRecord(existingRecord.variants)
+      ? (existingRecord.variants as Record<string, Record<string, unknown>>)
       : undefined
-    const finalVariants = existingVariants ?? endpointVariants
+    const finalVariants = existingVariants ?? model.variants
     const existingOptions = isRecord(existing?.options) ? existing.options : {}
     const existingOcaOptions = isRecord(existingOptions.oca) ? existingOptions.oca : {}
     const existingEndpoint = isRecord(existingOcaOptions.endpoint)
@@ -264,40 +82,31 @@ function upsertModels(provider: Provider | undefined, baseURL: string) {
       : {}
     const mergedEndpoint = {
       ...existingEndpoint,
-      ...endpoint,
+      ...model.endpoint,
     }
-    const options = model.endpoint
-      ? {
-          ...existingOptions,
-          oca: {
-            ...existingOcaOptions,
-            endpoint: mergedEndpoint,
-          },
-        }
-      : (existing?.options ?? {})
 
-    provider.models[id] = {
+    provider.models[model.id] = {
       ...(existing ?? {}),
-      id,
+      id: model.id,
       providerID: "oca",
-      name: existing?.name ?? endpointName ?? id,
+      name: existing?.name ?? model.name ?? model.id,
       api: {
         ...(existing?.api ?? {}),
-        id,
+        id: model.id,
         url: baseURL,
-        npm,
+        npm: model.npmPackage,
       },
       status: existing?.status ?? "active",
       capabilities: {
         ...(existing?.capabilities ?? {}),
         temperature: true,
-        reasoning: endpointReasoning,
+        reasoning: model.reasoning,
         attachment: true,
         toolcall: true,
         input: {
           text: true,
           audio: false,
-          image: endpointSupportsVision ?? true,
+          image: model.supportsVision ?? true,
           video: false,
           pdf: true,
           ...(existing?.capabilities?.input ?? {}),
@@ -312,20 +121,28 @@ function upsertModels(provider: Provider | undefined, baseURL: string) {
         },
       },
       cost: existing?.cost ?? {
-        input: endpointCosts.input ?? 0,
-        output: endpointCosts.output ?? 0,
+        input: model.costs.input ?? 0,
+        output: model.costs.output ?? 0,
         cache: { read: 0, write: 0 },
       },
       limit: existing?.limit ?? {
-        context: endpointContextWindow ?? 128_000,
-        output: endpointMaxOutput ?? 16_384,
+        context: model.contextWindow ?? 128_000,
+        output: model.maxOutputTokens ?? 16_384,
       },
-      options,
+      options: model.endpoint
+        ? {
+            ...existingOptions,
+            oca: {
+              ...existingOcaOptions,
+              endpoint: mergedEndpoint,
+            },
+          }
+        : (existing?.options ?? {}),
       headers: existing?.headers ?? {},
     }
 
     if (finalVariants) {
-      ;(provider.models[id] as Record<string, unknown>).variants = finalVariants
+      ;(provider.models[model.id] as Record<string, unknown>).variants = finalVariants
     }
   }
 }
@@ -345,7 +162,11 @@ async function resolveBaseUrl(auth: Auth) {
   }
 }
 
-async function save(input: PluginInput, previous: OAuthAuth, body: { access_token: string; refresh_token?: string; expires_in?: number }) {
+async function save(
+  input: PluginInput,
+  previous: OAuthAuth,
+  body: { access_token: string; refresh_token?: string; expires_in?: number },
+) {
   const next = {
     type: "oauth" as const,
     refresh: body.refresh_token ?? previous.refresh,
@@ -382,8 +203,8 @@ export function authLoader(input: PluginInput) {
     const auth = await getAuth()
 
     const token = auth.type === "oauth" ? auth.access : auth.type === "api" ? auth.key : undefined
-    const discovered = token ? await discoverBaseUrl(token) : undefined
-    if (discovered) upsertModels(provider, discovered)
+    const discoveredBaseUrl = token ? await discoverBaseUrl(token) : undefined
+    if (discoveredBaseUrl) upsertModels(provider, discoveredBaseUrl)
 
     if (auth.type !== "oauth") {
       const url = await resolveBaseUrl(auth)

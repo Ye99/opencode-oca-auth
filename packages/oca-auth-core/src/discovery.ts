@@ -152,7 +152,7 @@ export async function discoverProvider({
   fetchImpl = fetch,
   timeoutMs = 10_000,
 }: DiscoverProviderOptions): Promise<ProviderDiscovery | undefined> {
-  const probeUrl = async (baseURL: string): Promise<ProviderDiscovery> => {
+  const probeUrl = async (baseURL: string): Promise<ProviderDiscovery | undefined> => {
     const normalized = baseURL.replace(/\/+$/, "")
     for (const suffix of MODEL_DISCOVERY_PATHS) {
       const response = await fetchImpl(`${normalized}${suffix}`, {
@@ -171,16 +171,24 @@ export async function discoverProvider({
       }
       return { baseURL, models: parseModelsPayload(body) }
     }
-    throw new Error("no working endpoint")
+    return undefined
   }
 
   const urls = candidateBaseUrls(baseUrls)
-  return Promise.any(urls.map(probeUrl)).catch((aggregate) => {
-    const errors = aggregate instanceof AggregateError ? aggregate.errors : [aggregate]
-    console.warn(
-      `[oca] Model discovery failed for all ${urls.length} candidate URL(s). ` +
-        `First error: ${errors[0] instanceof Error ? errors[0].message : String(errors[0])}`,
-    )
-    return undefined
-  })
+  const errors: string[] = []
+  for (const url of urls) {
+    try {
+      const result = await probeUrl(url)
+      if (result) return result
+      errors.push(`${url}: no working endpoint`)
+    } catch (err) {
+      errors.push(`${url}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  console.warn(
+    `[oca] Model discovery failed for all ${urls.length} candidate URL(s). ` +
+      `First error: ${errors[0] ?? "unknown"}`,
+  )
+  return undefined
 }

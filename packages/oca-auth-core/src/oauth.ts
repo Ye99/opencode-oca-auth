@@ -1,6 +1,6 @@
 import { DEFAULT_IDCS_CLIENT_ID, DEFAULT_IDCS_URL } from "./constants"
 import type { OAuthConfigInput, TokenResponse } from "./types"
-import { isHttpUrl, nonEmpty, normalizeUrl } from "./url-utils"
+import { isHttpUrl, isSafeIdcsUrl, nonEmpty, normalizeUrl } from "./url-utils"
 
 function assertTokenResponse(data: unknown): asserts data is TokenResponse {
   if (
@@ -61,6 +61,9 @@ async function postTokenEndpoint(
   const base = normalizeUrl(idcsUrl)
   if (!isHttpUrl(base)) {
     throw new Error(`Invalid IDCS URL: ${idcsUrl}`)
+  }
+  if (!isSafeIdcsUrl(base)) {
+    throw new Error(`Unsafe IDCS URL (private/reserved address): ${idcsUrl}`)
   }
 
   const response = await fetch(`${base}/oauth2/v1/token`, {

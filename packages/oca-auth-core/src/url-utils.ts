@@ -33,5 +33,20 @@ export const isSafeBaseUrl = (value: string): boolean => {
   }
 }
 
+/** Validates an IDCS URL: must be HTTPS (or localhost HTTP), and not a private/reserved IP. */
+export const isSafeIdcsUrl = (value: string): boolean => {
+  if (!isSafeBaseUrl(value)) return false
+  try {
+    const url = new URL(value)
+    // IDCS URL must be HTTPS (except localhost for testing)
+    if (url.protocol === "http:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost") {
+      return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)

@@ -9,6 +9,7 @@ import {
   refreshAccessToken as refreshAccessTokenCore,
   resolveOauthConfig,
   isHttpUrl,
+  isSafeIdcsUrl,
   nonEmpty,
   normalizeUrl,
   clampExpiresIn,
@@ -52,8 +53,31 @@ const HTML_ERROR = (error: string) => `<!doctype html>
   </body>
 </html>`
 
-let oauthServer: ReturnType<typeof Bun.serve> | undefined
-let pendingOAuth: PendingOAuth | undefined
+function createOAuthCallbackServer() {
+  let server: ReturnType<typeof Bun.serve> | undefined
+  let pending: PendingOAuth | undefined
+
+  return {
+    get pending() { return pending },
+    set pending(value: PendingOAuth | undefined) { pending = value },
+    get isRunning() { return server !== undefined },
+    start(handler: (req: Request) => Promise<Response>) {
+      if (server) return
+      server = Bun.serve({
+        hostname: "127.0.0.1",
+        port: OAUTH_PORT,
+        fetch: handler,
+      })
+    },
+    stop() {
+      if (!server) return
+      server.stop()
+      server = undefined
+    },
+  }
+}
+
+const callbackServer = createOAuthCallbackServer()
 
 const random = (length: number) => {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
@@ -113,74 +137,61 @@ export function oauthConfig(value?: OAuthConfigInput) {
 export const refreshAccessToken = refreshAccessTokenCore
 export const exchangeCodeForTokens = exchangeCodeForTokensCore
 
-const startOAuthServer = () => {
-  if (oauthServer) return
-  oauthServer = Bun.serve({
-    hostname: "127.0.0.1",
-    port: OAUTH_PORT,
-    async fetch(req) {
-      const url = new URL(req.url)
-      if (url.pathname !== OAUTH_REDIRECT_PATH) {
-        return new Response("Not found", { status: 404 })
-      }
+async function handleOAuthCallback(req: Request): Promise<Response> {
+  const url = new URL(req.url)
+  if (url.pathname !== OAUTH_REDIRECT_PATH) {
+    return new Response("Not found", { status: 404 })
+  }
 
-      const code = url.searchParams.get("code")
-      const tokenState = url.searchParams.get("state")
-      const error = url.searchParams.get("error")
-      const desc = url.searchParams.get("error_description")
+  const code = url.searchParams.get("code")
+  const tokenState = url.searchParams.get("state")
+  const error = url.searchParams.get("error")
+  const desc = url.searchParams.get("error_description")
 
-      if (error) {
-        const message = desc || error
-        pendingOAuth?.reject(new Error(message))
-        pendingOAuth = undefined
-        return new Response(HTML_ERROR(message), {
-          headers: { "Content-Type": "text/html" },
-        })
-      }
+  if (error) {
+    const message = desc || error
+    callbackServer.pending?.reject(new Error(message))
+    callbackServer.pending = undefined
+    return new Response(HTML_ERROR(message), {
+      headers: { "Content-Type": "text/html" },
+    })
+  }
 
-      if (!code) {
-        const message = "Missing authorization code"
-        pendingOAuth?.reject(new Error(message))
-        pendingOAuth = undefined
-        return new Response(HTML_ERROR(message), {
-          status: 400,
-          headers: { "Content-Type": "text/html" },
-        })
-      }
+  if (!code) {
+    const message = "Missing authorization code"
+    callbackServer.pending?.reject(new Error(message))
+    callbackServer.pending = undefined
+    return new Response(HTML_ERROR(message), {
+      status: 400,
+      headers: { "Content-Type": "text/html" },
+    })
+  }
 
-      if (!pendingOAuth || tokenState !== pendingOAuth.state) {
-        const message = "Invalid state"
-        pendingOAuth?.reject(new Error(message))
-        pendingOAuth = undefined
-        return new Response(HTML_ERROR(message), {
-          status: 400,
-          headers: { "Content-Type": "text/html" },
-        })
-      }
+  if (!callbackServer.pending || tokenState !== callbackServer.pending.state) {
+    const message = "Invalid state"
+    callbackServer.pending?.reject(new Error(message))
+    callbackServer.pending = undefined
+    return new Response(HTML_ERROR(message), {
+      status: 400,
+      headers: { "Content-Type": "text/html" },
+    })
+  }
 
-      const current = pendingOAuth
-      pendingOAuth = undefined
-      try {
-        const tokens = await exchangeCodeForTokens(current.idcsUrl, current.clientId, code, redirectUri(), current.pkce.verifier)
-        current.resolve(tokens)
-        return new Response(HTML_SUCCESS, {
-          headers: { "Content-Type": "text/html" },
-        })
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        current.reject(err instanceof Error ? err : new Error(message))
-        return new Response(HTML_ERROR(message), {
-          headers: { "Content-Type": "text/html" },
-        })
-      }
-    },
-  })
-}
-
-const stopOAuthServer = () => {
-  if (!oauthServer) return
-  oauthServer.stop()
-  oauthServer = undefined
+  const current = callbackServer.pending
+  callbackServer.pending = undefined
+  try {
+    const tokens = await exchangeCodeForTokens(current.idcsUrl, current.clientId, code, redirectUri(), current.pkce.verifier)
+    current.resolve(tokens)
+    return new Response(HTML_SUCCESS, {
+      headers: { "Content-Type": "text/html" },
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    current.reject(err instanceof Error ? err : new Error(message))
+    return new Response(HTML_ERROR(message), {
+      headers: { "Content-Type": "text/html" },
+    })
+  }
 }
 
 const waitForOAuthCallback = (
@@ -189,19 +200,19 @@ const waitForOAuthCallback = (
   idcsUrl: string,
   clientId: string,
 ) => {
-  if (pendingOAuth) {
-    pendingOAuth.reject(new Error("Superseded by new OAuth flow"))
-    pendingOAuth = undefined
+  if (callbackServer.pending) {
+    callbackServer.pending.reject(new Error("Superseded by new OAuth flow"))
+    callbackServer.pending = undefined
   }
 
   return new Promise<TokenResponse>((resolve, reject) => {
     const timeout = setTimeout(() => {
-      if (!pendingOAuth) return
-      pendingOAuth = undefined
+      if (!callbackServer.pending) return
+      callbackServer.pending = undefined
       reject(new Error("OAuth callback timeout"))
     }, OAUTH_CALLBACK_TIMEOUT_MS)
 
-    pendingOAuth = {
+    callbackServer.pending = {
       pkce: codes,
       state: value,
       idcsUrl,
@@ -242,8 +253,11 @@ export function oauthMethod() {
       if (!isHttpUrl(idcsUrl)) {
         throw new Error(`Invalid IDCS URL: ${idcsUrl}. Use a full URL like https://idcs.example.com`)
       }
+      if (!isSafeIdcsUrl(idcsUrl)) {
+        throw new Error(`Unsafe IDCS URL (private/reserved address): ${idcsUrl}`)
+      }
       const clientId = nonEmpty(inputs.clientId) ?? config.clientId
-      startOAuthServer()
+      callbackServer.start(handleOAuthCallback)
       const codes = await pkce()
       const value = state()
       const callbackPromise = waitForOAuthCallback(codes, value, idcsUrl, clientId)
@@ -269,7 +283,7 @@ export function oauthMethod() {
               type: "failed" as const,
             }
           } finally {
-            stopOAuthServer()
+            callbackServer.stop()
           }
         },
       }

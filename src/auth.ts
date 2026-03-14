@@ -37,85 +37,85 @@ function baseUrls(): string[] {
     .filter(isSafeBaseUrl)
 }
 
+function getNestedOcaEndpoint(existing: Provider["models"][string] | undefined) {
+  const existingOptions = isRecord(existing?.options) ? existing.options : {}
+  const existingOcaOptions = isRecord(existingOptions.oca) ? existingOptions.oca : {}
+  const existingEndpoint = isRecord(existingOcaOptions.endpoint) ? existingOcaOptions.endpoint : {}
+  return { existingOptions, existingOcaOptions, existingEndpoint }
+}
+
+function buildProviderModel(
+  existing: Provider["models"][string] | undefined,
+  model: ResolvedOcaModel,
+  baseURL: string,
+): Provider["models"][string] {
+  const { existingOptions, existingOcaOptions, existingEndpoint } = getNestedOcaEndpoint(existing)
+  const existingRecord: Record<string, unknown> = isRecord(existing) ? existing : {}
+  const variants = (isRecord(existingRecord.variants)
+    ? existingRecord.variants as Record<string, Record<string, unknown>>
+    : undefined) ?? model.variants
+
+  const entry: Provider["models"][string] = {
+    ...(existing ?? {}),
+    id: model.id,
+    providerID: "oca",
+    name: existing?.name ?? model.name ?? model.id,
+    api: {
+      ...(existing?.api ?? {}),
+      id: model.id,
+      url: baseURL,
+      npm: model.npmPackage,
+    },
+    status: existing?.status ?? "active",
+    capabilities: {
+      ...(existing?.capabilities ?? {}),
+      temperature: true,
+      reasoning: model.reasoning,
+      attachment: true,
+      toolcall: true,
+      input: {
+        text: true,
+        audio: false,
+        image: model.supportsVision ?? true,
+        video: false,
+        pdf: true,
+        ...(existing?.capabilities?.input ?? {}),
+      },
+      output: {
+        text: true,
+        audio: false,
+        image: false,
+        video: false,
+        pdf: false,
+        ...(existing?.capabilities?.output ?? {}),
+      },
+    },
+    cost: existing?.cost ?? {
+      input: model.costs.input ?? 0,
+      output: model.costs.output ?? 0,
+      cache: { read: 0, write: 0 },
+    },
+    limit: existing?.limit ?? {
+      context: model.contextWindow ?? 128_000,
+      output: model.maxOutputTokens ?? 16_384,
+    },
+    options: model.endpoint
+      ? { ...existingOptions, oca: { ...existingOcaOptions, endpoint: { ...existingEndpoint, ...model.endpoint } } }
+      : (existing?.options ?? {}),
+    headers: existing?.headers ?? {},
+  }
+
+  if (variants) {
+    ;(entry as Record<string, unknown>).variants = variants
+  }
+
+  return entry
+}
+
 function upsertModels(provider: Provider | undefined, baseURL: string, models: ResolvedOcaModel[]) {
   if (!provider?.models) return
-
   for (const model of models) {
-    const existing = provider.models[model.id] as Provider["models"][string] | undefined
-    const existingRecord: Record<string, unknown> = isRecord(existing) ? existing : {}
-    const existingVariants = isRecord(existingRecord.variants)
-      ? (existingRecord.variants as Record<string, Record<string, unknown>>)
-      : undefined
-    const finalVariants = existingVariants ?? model.variants
-    const existingOptions = isRecord(existing?.options) ? existing.options : {}
-    const existingOcaOptions = isRecord(existingOptions.oca) ? existingOptions.oca : {}
-    const existingEndpoint = isRecord(existingOcaOptions.endpoint)
-      ? existingOcaOptions.endpoint
-      : {}
-    const mergedEndpoint = {
-      ...existingEndpoint,
-      ...model.endpoint,
-    }
-
-    provider.models[model.id] = {
-      ...(existing ?? {}),
-      id: model.id,
-      providerID: "oca",
-      name: existing?.name ?? model.name ?? model.id,
-      api: {
-        ...(existing?.api ?? {}),
-        id: model.id,
-        url: baseURL,
-        npm: model.npmPackage,
-      },
-      status: existing?.status ?? "active",
-      capabilities: {
-        ...(existing?.capabilities ?? {}),
-        temperature: true,
-        reasoning: model.reasoning,
-        attachment: true,
-        toolcall: true,
-        input: {
-          text: true,
-          audio: false,
-          image: model.supportsVision ?? true,
-          video: false,
-          pdf: true,
-          ...(existing?.capabilities?.input ?? {}),
-        },
-        output: {
-          text: true,
-          audio: false,
-          image: false,
-          video: false,
-          pdf: false,
-          ...(existing?.capabilities?.output ?? {}),
-        },
-      },
-      cost: existing?.cost ?? {
-        input: model.costs.input ?? 0,
-        output: model.costs.output ?? 0,
-        cache: { read: 0, write: 0 },
-      },
-      limit: existing?.limit ?? {
-        context: model.contextWindow ?? 128_000,
-        output: model.maxOutputTokens ?? 16_384,
-      },
-      options: model.endpoint
-        ? {
-            ...existingOptions,
-            oca: {
-              ...existingOcaOptions,
-              endpoint: mergedEndpoint,
-            },
-          }
-        : (existing?.options ?? {}),
-      headers: existing?.headers ?? {},
-    }
-
-    if (finalVariants) {
-      ;(provider.models[model.id] as Record<string, unknown>).variants = finalVariants
-    }
+    provider.models[model.id] = buildProviderModel(provider.models[model.id], model, baseURL)
   }
 }
 
@@ -155,64 +155,44 @@ async function refresh(input: PluginInput, auth: OAuthAuth) {
   }
 }
 
-export function authLoader(input: PluginInput) {
+export function createDiscoveryCache() {
   let discovered: ProviderDiscovery | undefined
   let discoveryPromise: Promise<ProviderDiscovery | undefined> | undefined
 
-  const discoverBaseUrl = async (token: string) => {
-    if (discovered) return discovered.baseURL
-    if (!discoveryPromise) {
-      discoveryPromise = discoverProvider({ token, baseUrls: baseUrls() })
-        .then((result) => {
-          discovered = result
-          return result
-        })
-        .finally(() => {
-          discoveryPromise = undefined
-        })
-    }
-    return (await discoveryPromise)?.baseURL
+  return {
+    get result() { return discovered },
+    async discover(token: string): Promise<string | undefined> {
+      if (discovered) return discovered.baseURL
+      if (!discoveryPromise) {
+        discoveryPromise = discoverProvider({ token, baseUrls: baseUrls() })
+          .then((result) => {
+            discovered = result
+            return result
+          })
+          .finally(() => {
+            discoveryPromise = undefined
+          })
+      }
+      return (await discoveryPromise)?.baseURL
+    },
+  }
+}
+
+export function createTokenManager(input: PluginInput, initial: OAuthAuth) {
+  let cached: OAuthAuth = { ...initial }
+  let refreshing: Promise<OAuthAuth> | undefined
+
+  const validToken = (value: OAuthAuth | undefined): value is OAuthAuth =>
+    Boolean(value?.access) && (value?.expires ?? 0) > Date.now() + TOKEN_EXPIRY_BUFFER_MS
+
+  const newest = (a: OAuthAuth | undefined, b: OAuthAuth | undefined) => {
+    if (!a) return b
+    if (!b) return a
+    return (b.expires ?? 0) > (a.expires ?? 0) ? b : a
   }
 
-  const resolveBaseUrl = async (auth: Auth) => {
-    const fromEnv = baseUrl()
-    if (fromEnv) return fromEnv
-
-    if (auth.type === "oauth") {
-      if (!auth.access) return
-      return discoverBaseUrl(auth.access)
-    }
-
-    if (auth.type === "api") {
-      if (!auth.key) return
-      return discoverBaseUrl(auth.key)
-    }
-  }
-
-  return async (getAuth: () => Promise<Auth>, provider?: Provider) => {
-    const auth = await getAuth()
-
-    const token = auth.type === "oauth" ? auth.access : auth.type === "api" ? auth.key : undefined
-    const discoveredBaseUrl = token ? await discoverBaseUrl(token) : undefined
-    if (discoveredBaseUrl && discovered) upsertModels(provider, discoveredBaseUrl, discovered.models)
-
-    if (auth.type !== "oauth") {
-      const url = await resolveBaseUrl(auth)
-      if (!url) return {}
-      return { baseURL: url }
-    }
-
-    const validToken = (value: OAuthAuth | undefined): value is OAuthAuth =>
-      Boolean(value?.access) && (value?.expires ?? 0) > Date.now() + TOKEN_EXPIRY_BUFFER_MS
-    const newest = (a: OAuthAuth | undefined, b: OAuthAuth | undefined) => {
-      if (!a) return b
-      if (!b) return a
-      return (b.expires ?? 0) > (a.expires ?? 0) ? b : a
-    }
-
-    let cached: OAuthAuth = { ...auth }
-    let refreshing: Promise<OAuthAuth> | undefined
-    const ensureFresh = async (value?: OAuthAuth): Promise<OAuthAuth> => {
+  return {
+    async ensureFresh(value?: OAuthAuth): Promise<OAuthAuth> {
       const candidate = newest(cached, value)
       if (validToken(candidate)) {
         cached = { ...candidate }
@@ -232,10 +212,49 @@ export function authLoader(input: PluginInput) {
       }
 
       return refreshing as Promise<OAuthAuth>
+    },
+  }
+}
+
+function resolveBaseUrl(
+  auth: Auth,
+  discovery: ReturnType<typeof createDiscoveryCache>,
+) {
+  const fromEnv = baseUrl()
+  if (fromEnv) return Promise.resolve(fromEnv)
+
+  if (auth.type === "oauth") {
+    if (!auth.access) return Promise.resolve(undefined)
+    return discovery.discover(auth.access)
+  }
+
+  if (auth.type === "api") {
+    if (!auth.key) return Promise.resolve(undefined)
+    return discovery.discover(auth.key)
+  }
+
+  return Promise.resolve(undefined)
+}
+
+export function authLoader(input: PluginInput) {
+  const discovery = createDiscoveryCache()
+
+  return async (getAuth: () => Promise<Auth>, provider?: Provider) => {
+    const auth = await getAuth()
+
+    const token = auth.type === "oauth" ? auth.access : auth.type === "api" ? auth.key : undefined
+    const discoveredBaseUrl = token ? await discovery.discover(token) : undefined
+    if (discoveredBaseUrl && discovery.result) upsertModels(provider, discoveredBaseUrl, discovery.result.models)
+
+    if (auth.type !== "oauth") {
+      const url = await resolveBaseUrl(auth, discovery)
+      if (!url) return {}
+      return { baseURL: url }
     }
 
-    const current = await ensureFresh(auth)
-    const url = await resolveBaseUrl(current)
+    const tokenManager = createTokenManager(input, auth)
+    const current = await tokenManager.ensureFresh(auth)
+    const url = await resolveBaseUrl(current, discovery)
 
     return {
       apiKey: OAUTH_DUMMY_KEY,
@@ -244,7 +263,7 @@ export function authLoader(input: PluginInput) {
         const latest = await getAuth()
         if (latest.type !== "oauth") return fetch(request, init)
 
-        const next = await ensureFresh(latest)
+        const next = await tokenManager.ensureFresh(latest)
 
         const headers = new Headers(init?.headers)
         headers.set("Authorization", `Bearer ${next.access}`)

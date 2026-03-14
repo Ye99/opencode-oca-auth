@@ -48,5 +48,17 @@ export const isSafeIdcsUrl = (value: string): boolean => {
   }
 }
 
+/** Returns true if the URL hostname is a trusted domain for sending bearer tokens. */
+export const isTrustedTokenDomain = (value: string): boolean => {
+  try {
+    const host = new URL(value).hostname.toLowerCase()
+    if (host === "127.0.0.1" || host === "localhost") return true
+    if (host.endsWith(".oraclecloud.com")) return true
+    return false
+  } catch {
+    return false
+  }
+}
+
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)

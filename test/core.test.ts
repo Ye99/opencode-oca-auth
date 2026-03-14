@@ -73,7 +73,7 @@ test("discoverProvider prefers /v1/model/info and normalizes model metadata", as
   const calls: string[] = []
   globalThis.fetch = (async (url: RequestInfo | URL) => {
     calls.push(String(url))
-    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+    if (String(url) === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
       return Response.json({
         data: [
           {
@@ -99,11 +99,11 @@ test("discoverProvider prefers /v1/model/info and normalizes model metadata", as
 
   const result = await discoverProvider({
     token: "token-123",
-    baseUrls: ["https://oca.example/litellm"],
+    baseUrls: ["https://oca.test.oraclecloud.com/litellm"],
   })
 
-  expect(calls[0]).toBe("https://oca.example/litellm/v1/model/info")
-  expect(result?.baseURL).toBe("https://oca.example/litellm")
+  expect(calls[0]).toBe("https://oca.test.oraclecloud.com/litellm/v1/model/info")
+  expect(result?.baseURL).toBe("https://oca.test.oraclecloud.com/litellm")
   expect(result?.models).toEqual([
     {
       id: "gpt-5.3-codex",

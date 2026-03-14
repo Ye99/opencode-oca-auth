@@ -9,7 +9,7 @@ import type {
   ResolvedModelVariants,
   ResolvedOcaModel,
 } from "./types"
-import { isHttpUrl, isSafeBaseUrl } from "./url-utils"
+import { isHttpUrl, isSafeBaseUrl, isTrustedTokenDomain } from "./url-utils"
 
 type DiscoverProviderOptions = {
   token: string
@@ -154,9 +154,16 @@ export async function discoverProvider({
 }: DiscoverProviderOptions): Promise<ProviderDiscovery | undefined> {
   const probeUrl = async (baseURL: string): Promise<ProviderDiscovery | undefined> => {
     const normalized = baseURL.replace(/\/+$/, "")
+    const trusted = isTrustedTokenDomain(baseURL)
+    if (!trusted) {
+      console.warn(`[oca] Skipping bearer token for untrusted domain: ${baseURL}`)
+    }
     for (const suffix of MODEL_DISCOVERY_PATHS) {
+      const headers: Record<string, string> = trusted
+        ? { Authorization: `Bearer ${token}` }
+        : {}
       const response = await fetchImpl(`${normalized}${suffix}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers,
         signal: AbortSignal.timeout(timeoutMs),
         redirect: "manual",
       }).catch(() => undefined)

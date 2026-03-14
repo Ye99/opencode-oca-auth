@@ -21,10 +21,10 @@ afterEach(() => {
 test("loader resolves base url from OCA_BASE_URLS env list", async () => {
   const calls: Array<{ url: RequestInfo | URL; init?: RequestInit }> = []
   delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://env-a.example/litellm,https://env-b.example/litellm"
+  process.env.OCA_BASE_URLS = "https://env-a.test.oraclecloud.com/litellm,https://env-b.test.oraclecloud.com/litellm"
   globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
     calls.push({ url, init })
-    if (String(url) === "https://env-a.example/litellm/v1/model/info") {
+    if (String(url) === "https://env-a.test.oraclecloud.com/litellm/v1/model/info") {
       return Response.json({ data: [{ id: "gpt-5" }] })
     }
     return new Response("nope", { status: 404 })
@@ -53,8 +53,8 @@ test("loader resolves base url from OCA_BASE_URLS env list", async () => {
     {} as never,
   )
 
-  expect(loaded.baseURL).toBe("https://env-a.example/litellm")
-  expect(String(calls[0]?.url)).toBe("https://env-a.example/litellm/v1/model/info")
+  expect(loaded.baseURL).toBe("https://env-a.test.oraclecloud.com/litellm")
+  expect(String(calls[0]?.url)).toBe("https://env-a.test.oraclecloud.com/litellm/v1/model/info")
 })
 
 test("loader resolves oca base url from built-in endpoints", async () => {
@@ -148,10 +148,10 @@ test("loader populates provider models from oca models endpoint", async () => {
 
 test("loader upgrades empty existing model entries", async () => {
   delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+  process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
 
   globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
-    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+    if (String(url) === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
       return Response.json({
         data: [
           {
@@ -200,15 +200,15 @@ test("loader upgrades empty existing model entries", async () => {
 
   const codex = (provider.models as Record<string, any>)["gpt-5.3-codex"]
   expect(codex.api.npm).toBe("@ai-sdk/openai")
-  expect(codex.api.url).toBe("https://oca.example/litellm")
+  expect(codex.api.url).toBe("https://oca.test.oraclecloud.com/litellm")
 })
 
 test("loader refreshes discovered metadata for non-empty existing entries", async () => {
   delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+  process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
 
   globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
-    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+    if (String(url) === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
       return Response.json({
         data: [
           {
@@ -271,7 +271,7 @@ test("loader refreshes discovered metadata for non-empty existing entries", asyn
   expect(codex.providerID).toBe("oca")
   expect(codex.api.id).toBe("gpt-5.3-codex")
   expect(codex.api.npm).toBe("@ai-sdk/openai")
-  expect(codex.api.url).toBe("https://oca.example/litellm")
+  expect(codex.api.url).toBe("https://oca.test.oraclecloud.com/litellm")
   expect(codex.capabilities.reasoning).toBe(true)
   expect(codex.custom).toBe("keep-me")
 })
@@ -718,10 +718,10 @@ test("loader reuses refreshed oauth token when auth store is stale", async () =>
 
 test("loader uses model limit from api model_info when available", async () => {
   delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+  process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
 
   globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
-    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+    if (String(url) === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
       return Response.json({
         data: [
           {
@@ -777,10 +777,10 @@ test("loader uses model limit from api model_info when available", async () => {
 
 test("loader uses cost from api model_info when available", async () => {
   delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+  process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
 
   globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
-    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+    if (String(url) === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
       return Response.json({
         data: [
           {
@@ -840,10 +840,10 @@ test("loader uses cost from api model_info when available", async () => {
 
 test("loader falls back to hardcoded defaults when api lacks limit and cost fields", async () => {
   delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+  process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
 
   globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
-    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+    if (String(url) === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
       return Response.json({
         data: [
           {
@@ -898,10 +898,10 @@ test("loader falls back to hardcoded defaults when api lacks limit and cost fiel
 
 test("loader preserves user-configured limit over api-discovered limit", async () => {
   delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+  process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
 
   globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
-    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+    if (String(url) === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
       return Response.json({
         data: [
           {
@@ -966,10 +966,10 @@ test("loader preserves user-configured limit over api-discovered limit", async (
 
 test("loader uses context_window field from model_info (OCA primary field)", async () => {
   delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+  process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
 
   globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
-    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+    if (String(url) === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
       return Response.json({
         data: [
           {
@@ -1018,10 +1018,10 @@ test("loader uses context_window field from model_info (OCA primary field)", asy
 
 test("loader treats max_output_tokens=0 as sentinel and falls back to hardcoded default", async () => {
   delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+  process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
 
   globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
-    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+    if (String(url) === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
       return Response.json({
         data: [
           {
@@ -1071,19 +1071,19 @@ test("loader treats max_output_tokens=0 as sentinel and falls back to hardcoded 
 
 test("loader prefers /v1/model/info over /models when both succeed", async () => {
   delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+  process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
 
   const hits: string[] = []
   globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
     const u = String(url)
-    if (u === "https://oca.example/litellm/models") {
+    if (u === "https://oca.test.oraclecloud.com/litellm/models") {
       hits.push("/models")
       // Returns models but NO model_info (realistic OCA behaviour)
       return Response.json({
         data: [{ id: "gpt-5.3-codex" }],
       })
     }
-    if (u === "https://oca.example/litellm/v1/model/info") {
+    if (u === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
       hits.push("/v1/model/info")
       return Response.json({
         data: [
@@ -1136,10 +1136,10 @@ test("loader prefers /v1/model/info over /models when both succeed", async () =>
 
 test("loader uses model_name/supports_vision/reasoning_effort_options from endpoint", async () => {
   delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+  process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
 
   globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
-    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+    if (String(url) === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
       return Response.json({
         data: [
           {
@@ -1199,10 +1199,10 @@ test("loader uses model_name/supports_vision/reasoning_effort_options from endpo
 
 test("loader preserves unknown endpoint fields under options.oca.endpoint", async () => {
   delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+  process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
 
   globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
-    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+    if (String(url) === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
       return Response.json({
         data: [
           {
@@ -1255,10 +1255,10 @@ test("loader preserves unknown endpoint fields under options.oca.endpoint", asyn
 
 test("loader merges endpoint payload without dropping user endpoint annotations", async () => {
   delete process.env.OCA_BASE_URL
-  process.env.OCA_BASE_URLS = "https://oca.example/litellm"
+  process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
 
   globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
-    if (String(url) === "https://oca.example/litellm/v1/model/info") {
+    if (String(url) === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
       return Response.json({
         data: [
           {

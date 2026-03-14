@@ -1,5 +1,3 @@
-export type CoreMarker = "oca-auth-core"
-
 export type OAuthConfigInput = {
   enterpriseUrl?: string
   accountId?: string

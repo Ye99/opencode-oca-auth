@@ -11,6 +11,7 @@ import {
   isHttpUrl,
   nonEmpty,
   normalizeUrl,
+  clampExpiresIn,
   type OAuthConfigInput,
   type TokenResponse,
 } from "../packages/oca-auth-core"
@@ -111,7 +112,7 @@ const startOAuthServer = () => {
   oauthServer = Bun.serve({
     hostname: "127.0.0.1",
     port: OAUTH_PORT,
-    fetch(req) {
+    async fetch(req) {
       const url = new URL(req.url)
       if (url.pathname !== OAUTH_REDIRECT_PATH) {
         return new Response("Not found", { status: 404 })
@@ -153,13 +154,19 @@ const startOAuthServer = () => {
 
       const current = pendingOAuth
       pendingOAuth = undefined
-      exchangeCodeForTokens(current.idcsUrl, current.clientId, code, redirectUri(), current.pkce.verifier)
-        .then((tokens) => current.resolve(tokens))
-        .catch((err) => current.reject(err))
-
-      return new Response(HTML_SUCCESS, {
-        headers: { "Content-Type": "text/html" },
-      })
+      try {
+        const tokens = await exchangeCodeForTokens(current.idcsUrl, current.clientId, code, redirectUri(), current.pkce.verifier)
+        current.resolve(tokens)
+        return new Response(HTML_SUCCESS, {
+          headers: { "Content-Type": "text/html" },
+        })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        current.reject(err instanceof Error ? err : new Error(message))
+        return new Response(HTML_ERROR(message), {
+          headers: { "Content-Type": "text/html" },
+        })
+      }
     },
   })
 }
@@ -246,7 +253,7 @@ export function oauthMethod() {
               type: "success" as const,
               refresh: tokens.refresh_token ?? "",
               access: tokens.access_token,
-              expires: Date.now() + (tokens.expires_in ?? 3600) * 1000,
+              expires: Date.now() + clampExpiresIn(tokens.expires_in) * 1000,
               accountId: clientId,
               enterpriseUrl: idcsUrl,
             }

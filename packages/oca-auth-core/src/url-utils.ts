@@ -18,10 +18,15 @@ export const isSafeBaseUrl = (value: string): boolean => {
   try {
     const url = new URL(value)
     if (url.protocol !== "https:" && url.protocol !== "http:") return false
-    if (url.protocol === "http:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost") {
+    const host = url.hostname.replace(/^\[|\]$/g, "")
+    if (url.protocol === "http:" && host !== "127.0.0.1" && host !== "localhost") {
       return false
     }
-    if (/^169\.254\./.test(url.hostname)) return false
+    // Block private, loopback, link-local, and reserved IP ranges
+    if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|0\.)/.test(host)) return false
+    if (host === "0.0.0.0" || host === "::1" || host === "::") return false
+    if (/^(fc|fd)[0-9a-f]{2}:/i.test(host)) return false // IPv6 ULA
+    if (/^::ffff:/i.test(host)) return false // IPv4-mapped IPv6
     return true
   } catch {
     return false

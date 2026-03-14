@@ -2,7 +2,7 @@ import type { Auth, Provider } from "@opencode-ai/sdk"
 import type { PluginInput } from "@opencode-ai/plugin"
 
 import type { ProviderDiscovery, ResolvedOcaModel } from "../packages/oca-auth-core"
-import { discoverProvider, isSafeBaseUrl, isRecord, TOKEN_EXPIRY_BUFFER_MS } from "../packages/oca-auth-core"
+import { discoverProvider, isSafeBaseUrl, isRecord, TOKEN_EXPIRY_BUFFER_MS, clampExpiresIn } from "../packages/oca-auth-core"
 import { loadEnv } from "./env"
 import { oauthConfig, refreshAccessToken } from "./oauth"
 
@@ -128,7 +128,7 @@ async function save(
     type: "oauth" as const,
     refresh: body.refresh_token ?? previous.refresh,
     access: body.access_token,
-    expires: Date.now() + (body.expires_in ?? 3600) * 1000,
+    expires: Date.now() + clampExpiresIn(body.expires_in) * 1000,
     enterpriseUrl: previous.enterpriseUrl,
     accountId: previous.accountId,
   }

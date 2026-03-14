@@ -53,7 +53,7 @@ function reasoning(id: string) {
   if (model.includes("reasoner")) return true
   if (model.includes("thinking")) return true
   if (/^o[134](?:$|[-/])/.test(model)) return true
-  if (model.includes("r1")) return true
+  if (/(?:^|[-/_])r1(?:$|[-/_])/.test(model)) return true
   return false
 }
 
@@ -174,5 +174,13 @@ export async function discoverProvider({
     throw new Error("no working endpoint")
   }
 
-  return Promise.any(candidateBaseUrls(baseUrls).map(probeUrl)).catch(() => undefined)
+  const urls = candidateBaseUrls(baseUrls)
+  return Promise.any(urls.map(probeUrl)).catch((aggregate) => {
+    const errors = aggregate instanceof AggregateError ? aggregate.errors : [aggregate]
+    console.warn(
+      `[oca] Model discovery failed for all ${urls.length} candidate URL(s). ` +
+        `First error: ${errors[0] instanceof Error ? errors[0].message : String(errors[0])}`,
+    )
+    return undefined
+  })
 }

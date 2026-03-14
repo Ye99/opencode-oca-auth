@@ -13,3 +13,6 @@ export const DEFAULT_OCA_BASE_URLS = [
 export const MODEL_DISCOVERY_PATHS = ["/v1/model/info", "/models", "/v1/models"] as const
 
 export const TOKEN_EXPIRY_BUFFER_MS = 60_000
+
+/** Clamp expires_in (seconds) to [60, 86400] to guard against malicious or buggy values. */
+export const clampExpiresIn = (value?: number) => Math.max(60, Math.min(value ?? 3600, 86400))

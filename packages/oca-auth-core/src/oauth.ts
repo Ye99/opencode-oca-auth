@@ -2,6 +2,17 @@ import { DEFAULT_IDCS_CLIENT_ID, DEFAULT_IDCS_URL } from "./constants"
 import type { OAuthConfigInput, TokenResponse } from "./types"
 import { isHttpUrl, nonEmpty, normalizeUrl } from "./url-utils"
 
+function assertTokenResponse(data: unknown): asserts data is TokenResponse {
+  if (
+    typeof data !== "object" ||
+    data === null ||
+    typeof (data as Record<string, unknown>).access_token !== "string" ||
+    !(data as Record<string, unknown>).access_token
+  ) {
+    throw new Error("Token response missing or invalid access_token")
+  }
+}
+
 const readTokenError = async (response: Response) => {
   const text = await response.text().catch(() => "")
   if (!text) return
@@ -42,10 +53,10 @@ export function resolveOauthConfig(
   }
 }
 
-export async function refreshAccessToken(
+async function postTokenEndpoint(
   idcsUrl: string,
-  clientId: string,
-  refresh: string,
+  body: Record<string, string>,
+  errorPrefix: string,
 ): Promise<TokenResponse> {
   const base = normalizeUrl(idcsUrl)
   if (!isHttpUrl(base)) {
@@ -54,26 +65,34 @@ export async function refreshAccessToken(
 
   const response = await fetch(`${base}/oauth2/v1/token`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: refresh,
-      client_id: clientId,
-    }).toString(),
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(body).toString(),
   })
 
   if (!response.ok) {
     const detail = await readTokenError(response)
     throw new Error(
       detail
-        ? `Token refresh failed: ${response.status} (${detail})`
-        : `Token refresh failed: ${response.status}`,
+        ? `${errorPrefix}: ${response.status} (${detail})`
+        : `${errorPrefix}: ${response.status}`,
     )
   }
 
-  return (await response.json()) as TokenResponse
+  const data = await response.json()
+  assertTokenResponse(data)
+  return data
+}
+
+export async function refreshAccessToken(
+  idcsUrl: string,
+  clientId: string,
+  refresh: string,
+): Promise<TokenResponse> {
+  return postTokenEndpoint(
+    idcsUrl,
+    { grant_type: "refresh_token", refresh_token: refresh, client_id: clientId },
+    "Token refresh failed",
+  )
 }
 
 export async function exchangeCodeForTokens(
@@ -83,33 +102,15 @@ export async function exchangeCodeForTokens(
   redirectUri: string,
   verifier: string,
 ): Promise<TokenResponse> {
-  const base = normalizeUrl(idcsUrl)
-  if (!isHttpUrl(base)) {
-    throw new Error(`Invalid IDCS URL: ${idcsUrl}`)
-  }
-
-  const response = await fetch(`${base}/oauth2/v1/token`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
+  return postTokenEndpoint(
+    idcsUrl,
+    {
       grant_type: "authorization_code",
       code,
       redirect_uri: redirectUri,
       client_id: clientId,
       code_verifier: verifier,
-    }).toString(),
-  })
-
-  if (!response.ok) {
-    const detail = await readTokenError(response)
-    throw new Error(
-      detail
-        ? `Token exchange failed: ${response.status} (${detail})`
-        : `Token exchange failed: ${response.status}`,
-    )
-  }
-
-  return (await response.json()) as TokenResponse
+    },
+    "Token exchange failed",
+  )
 }

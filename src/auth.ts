@@ -161,17 +161,25 @@ export function createDiscoveryCache() {
   let discovered: ProviderDiscovery | undefined
   let discoveryPromise: Promise<ProviderDiscovery | undefined> | undefined
   let failedAt: number | undefined
+  let failedToken: string | undefined
 
   return {
     get result() { return discovered },
     async discover(token: string): Promise<string | undefined> {
       if (discovered) return discovered.baseURL
-      if (failedAt !== undefined && Date.now() < failedAt + NEGATIVE_TTL_MS) return undefined
+      if (
+        failedAt !== undefined &&
+        failedToken === token &&
+        Date.now() < failedAt + NEGATIVE_TTL_MS
+      ) {
+        return undefined
+      }
       if (!discoveryPromise) {
         discoveryPromise = discoverProvider({ token, baseUrls: baseUrls() })
           .then((result) => {
             discovered = result
             failedAt = result ? undefined : Date.now()
+            failedToken = result ? undefined : token
             return result
           })
           .finally(() => {

@@ -99,6 +99,60 @@ test("loader resolves oca base url from built-in endpoints", async () => {
   expect(headers.get("Authorization")).toBe("Bearer access-token")
 })
 
+test("loader retries discovery immediately when oauth token changes after a failed probe", async () => {
+  delete process.env.OCA_BASE_URL
+  process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
+
+  globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url) === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
+      const headers = new Headers(init?.headers)
+      const auth = headers.get("Authorization")
+      if (auth === "Bearer valid-token") {
+        return Response.json({ data: [{ id: "gpt-5" }] })
+      }
+      return new Response("unauthorized", { status: 401 })
+    }
+    return new Response("nope", { status: 404 })
+  }) as unknown as typeof fetch
+
+  const input = {
+    client: {
+      auth: {
+        set: async () => ({}),
+      },
+    },
+  } as unknown as Parameters<typeof plugin>[0]
+  const hooks = await plugin(input)
+  const loader = hooks.auth?.loader
+  expect(loader).toBeDefined()
+
+  if (!loader) throw new Error("missing loader")
+
+  const first = await loader(
+    async () => ({
+      type: "oauth" as const,
+      refresh: "refresh-token",
+      access: "invalid-token",
+      expires: Date.now() + 300_000,
+    }),
+    {} as never,
+  )
+
+  expect(first.baseURL).toBeUndefined()
+
+  const second = await loader(
+    async () => ({
+      type: "oauth" as const,
+      refresh: "refresh-token",
+      access: "valid-token",
+      expires: Date.now() + 300_000,
+    }),
+    {} as never,
+  )
+
+  expect(second.baseURL).toBe("https://oca.test.oraclecloud.com/litellm")
+})
+
 test("loader populates provider models from oca models endpoint", async () => {
   delete process.env.OCA_BASE_URL
   globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {

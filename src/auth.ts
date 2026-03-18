@@ -44,22 +44,12 @@ function getNestedOcaEndpoint(existing: Provider["models"][string] | undefined) 
   return { existingOptions, existingOcaOptions, existingEndpoint }
 }
 
-function hasPlaceholderInputCapabilities(existing: Provider["models"][string] | undefined) {
+function hasPlaceholderImagePdfCapabilities(existing: Provider["models"][string] | undefined) {
   const input = existing?.capabilities?.input
-  const output = existing?.capabilities?.output
 
   return (
-    existing?.capabilities?.attachment === true &&
-    input?.text === true &&
-    input?.audio === false &&
     input?.image === false &&
-    input?.video === false &&
-    input?.pdf === false &&
-    output?.text === true &&
-    output?.audio === false &&
-    output?.image === false &&
-    output?.video === false &&
-    output?.pdf === false
+    input?.pdf === false
   )
 }
 
@@ -73,7 +63,11 @@ function buildProviderModel(
   const existingLimit = existing?.limit
   const existingContextLimit = existingLimit?.context
   const existingOutputLimit = existingLimit?.output
-  const shouldReplacePlaceholderCapabilities = hasPlaceholderInputCapabilities(existing)
+  const hasPlaceholderLimit = (existingContextLimit ?? 0) <= 0 && (existingOutputLimit ?? 0) <= 0
+  const shouldReplacePlaceholderCapabilities =
+    hasPlaceholderLimit &&
+    !existingEndpoint.model_info &&
+    hasPlaceholderImagePdfCapabilities(existing)
   const variants = (isRecord(existingRecord.variants)
     ? existingRecord.variants as Record<string, Record<string, unknown>>
     : undefined) ?? model.variants

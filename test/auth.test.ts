@@ -1066,22 +1066,8 @@ test("loader replaces placeholder metadata on the preconfigured default model", 
     models: {
       "gpt-5.4": {
         capabilities: {
-          temperature: true,
-          reasoning: true,
-          attachment: true,
-          toolcall: true,
           input: {
-            text: true,
-            audio: false,
             image: false,
-            video: false,
-            pdf: false,
-          },
-          output: {
-            text: true,
-            audio: false,
-            image: false,
-            video: false,
             pdf: false,
           },
         },
@@ -1179,7 +1165,7 @@ test("loader preserves explicit capability overrides over discovered metadata", 
   expect(model.limit).toEqual({ context: 64_000, output: 8_192 })
 })
 
-test("loader preserves explicit capability overrides even when limits remain placeholders", async () => {
+test("loader treats sparse false image/pdf with zero limits as placeholder metadata", async () => {
   delete process.env.OCA_BASE_URL
   process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
 
@@ -1247,8 +1233,8 @@ test("loader preserves explicit capability overrides even when limits remain pla
   )
 
   const model = (provider.models as Record<string, any>)["gpt-5.4"]
-  expect(model.capabilities.input.image).toBe(false)
-  expect(model.capabilities.input.pdf).toBe(false)
+  expect(model.capabilities.input.image).toBe(true)
+  expect(model.capabilities.input.pdf).toBe(true)
   expect(model.limit).toEqual({ context: 922_000, output: 128_000 })
 })
 

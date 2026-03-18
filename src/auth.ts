@@ -44,6 +44,25 @@ function getNestedOcaEndpoint(existing: Provider["models"][string] | undefined) 
   return { existingOptions, existingOcaOptions, existingEndpoint }
 }
 
+function hasPlaceholderInputCapabilities(existing: Provider["models"][string] | undefined) {
+  const input = existing?.capabilities?.input
+  const output = existing?.capabilities?.output
+
+  return (
+    existing?.capabilities?.attachment === true &&
+    input?.text === true &&
+    input?.audio === false &&
+    input?.image === false &&
+    input?.video === false &&
+    input?.pdf === false &&
+    output?.text === true &&
+    output?.audio === false &&
+    output?.image === false &&
+    output?.video === false &&
+    output?.pdf === false
+  )
+}
+
 function buildProviderModel(
   existing: Provider["models"][string] | undefined,
   model: ResolvedOcaModel,
@@ -51,6 +70,10 @@ function buildProviderModel(
 ): Provider["models"][string] {
   const { existingOptions, existingOcaOptions, existingEndpoint } = getNestedOcaEndpoint(existing)
   const existingRecord: Record<string, unknown> = isRecord(existing) ? existing : {}
+  const existingLimit = existing?.limit
+  const existingContextLimit = existingLimit?.context
+  const existingOutputLimit = existingLimit?.output
+  const shouldReplacePlaceholderCapabilities = hasPlaceholderInputCapabilities(existing)
   const variants = (isRecord(existingRecord.variants)
     ? existingRecord.variants as Record<string, Record<string, unknown>>
     : undefined) ?? model.variants
@@ -79,7 +102,7 @@ function buildProviderModel(
         image: model.supportsVision ?? true,
         video: false,
         pdf: true,
-        ...(existing?.capabilities?.input ?? {}),
+        ...(!shouldReplacePlaceholderCapabilities ? (existing?.capabilities?.input ?? {}) : {}),
       },
       output: {
         text: true,
@@ -87,7 +110,7 @@ function buildProviderModel(
         image: false,
         video: false,
         pdf: false,
-        ...(existing?.capabilities?.output ?? {}),
+        ...(!shouldReplacePlaceholderCapabilities ? (existing?.capabilities?.output ?? {}) : {}),
       },
     },
     cost: existing?.cost ?? {
@@ -95,9 +118,13 @@ function buildProviderModel(
       output: model.costs.output ?? 0,
       cache: { read: 0, write: 0 },
     },
-    limit: existing?.limit ?? {
-      context: model.contextWindow ?? 128_000,
-      output: model.maxOutputTokens ?? 16_384,
+    limit: {
+      context: (existingContextLimit ?? 0) > 0
+        ? (existingContextLimit ?? 0)
+        : (model.contextWindow ?? 128_000),
+      output: (existingOutputLimit ?? 0) > 0
+        ? (existingOutputLimit ?? 0)
+        : (model.maxOutputTokens ?? 16_384),
     },
     options: model.endpoint
       ? { ...existingOptions, oca: { ...existingOcaOptions, endpoint: { ...existingEndpoint, ...model.endpoint } } }

@@ -1066,10 +1066,25 @@ test("loader replaces placeholder metadata on the preconfigured default model", 
     models: {
       "gpt-5.4": {
         capabilities: {
+          temperature: false,
+          reasoning: false,
+          attachment: false,
+          toolcall: true,
           input: {
+            text: true,
+            audio: false,
             image: false,
+            video: false,
             pdf: false,
           },
+          output: {
+            text: true,
+            audio: false,
+            image: false,
+            video: false,
+            pdf: false,
+          },
+          interleaved: false,
         },
         limit: { context: 0, output: 0 },
       },
@@ -1165,7 +1180,7 @@ test("loader preserves explicit capability overrides over discovered metadata", 
   expect(model.limit).toEqual({ context: 64_000, output: 8_192 })
 })
 
-test("loader treats sparse false image/pdf with zero limits as placeholder metadata", async () => {
+test("loader preserves sparse false image/pdf overrides even when limits are zero", async () => {
   delete process.env.OCA_BASE_URL
   process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
 
@@ -1233,8 +1248,80 @@ test("loader treats sparse false image/pdf with zero limits as placeholder metad
   )
 
   const model = (provider.models as Record<string, any>)["gpt-5.4"]
-  expect(model.capabilities.input.image).toBe(true)
-  expect(model.capabilities.input.pdf).toBe(true)
+  expect(model.capabilities.input.image).toBe(false)
+  expect(model.capabilities.input.pdf).toBe(false)
+  expect(model.limit).toEqual({ context: 922_000, output: 128_000 })
+})
+
+test("loader preserves sparse explicit image/pdf overrides when limits are omitted", async () => {
+  delete process.env.OCA_BASE_URL
+  process.env.OCA_BASE_URLS = "https://oca.test.oraclecloud.com/litellm"
+
+  globalThis.fetch = (async (url: RequestInfo | URL, _init?: RequestInit) => {
+    if (String(url) === "https://oca.test.oraclecloud.com/litellm/v1/model/info") {
+      return Response.json({
+        data: [
+          {
+            model_name: "OpenAI GPT 5.4",
+            litellm_params: { model: "oca/gpt-5.4" },
+            model_info: {
+              is_reasoning_model: true,
+              supported_api_list: ["RESPONSES", "CHAT_COMPLETIONS"],
+              supports_vision: true,
+              context_window: 922000,
+              max_output_tokens: 128000,
+            },
+          },
+        ],
+      })
+    }
+    return new Response("nope", { status: 404 })
+  }) as unknown as typeof fetch
+
+  const input = {
+    client: {
+      auth: {
+        set: async () => ({}),
+      },
+    },
+  } as unknown as Parameters<typeof plugin>[0]
+  const hooks = await plugin(input)
+  const loader = hooks.auth?.loader
+  expect(loader).toBeDefined()
+
+  if (!loader) throw new Error("missing loader")
+
+  const provider = {
+    id: "oca",
+    name: "Oracle Code Assist",
+    source: "custom",
+    env: ["OCA_API_KEY"],
+    options: {},
+    models: {
+      "gpt-5.4": {
+        capabilities: {
+          input: {
+            image: false,
+            pdf: false,
+          },
+        },
+      },
+    },
+  }
+
+  await loader(
+    async () => ({
+      type: "oauth",
+      refresh: "refresh-token",
+      access: "access-token",
+      expires: Date.now() + 300_000,
+    }),
+    provider as never,
+  )
+
+  const model = (provider.models as Record<string, any>)["gpt-5.4"]
+  expect(model.capabilities.input.image).toBe(false)
+  expect(model.capabilities.input.pdf).toBe(false)
   expect(model.limit).toEqual({ context: 922_000, output: 128_000 })
 })
 

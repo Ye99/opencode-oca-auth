@@ -53,6 +53,10 @@ const HTML_ERROR = (error: string) => `<!doctype html>
   </body>
 </html>`
 
+export function resolveOAuthBindHost(): string {
+  return process.env.OCA_OAUTH_BIND_HOST || "127.0.0.1"
+}
+
 function createOAuthCallbackServer() {
   let server: ReturnType<typeof Bun.serve> | undefined
   let pending: PendingOAuth | undefined
@@ -64,7 +68,7 @@ function createOAuthCallbackServer() {
     start(handler: (req: Request) => Promise<Response>) {
       if (server) return
       server = Bun.serve({
-        hostname: "127.0.0.1",
+        hostname: resolveOAuthBindHost(),
         port: OAUTH_PORT,
         fetch: handler,
       })

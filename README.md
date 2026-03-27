@@ -29,7 +29,7 @@ opencode-oca-auth-install ~/.config/opencode/opencode.json
 The installer adds:
 
 - this repository as an OpenCode plugin entry
-- `provider.oca.models.gpt-5.3-codex` to your OpenCode config
+- all OCA models available for use in OpenCode to your OpenCode config
 
 ## Model metadata precedence
 

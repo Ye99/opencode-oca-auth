@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "description": "Standalone OpenCode auth plugin for provider oca",
   "type": "module",
+  "main": "./index.ts",
   "license": "MIT",
   "exports": {
     ".": "./index.ts"

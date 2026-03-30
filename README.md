@@ -7,23 +7,10 @@ It holds reusable OCA OAuth and model-discovery logic so the OpenCode plugin can
 
 ## Install
 
-### Standard
-
 ```bash
 git clone <this-repo>
 cd opencode-oca-auth
 node ./scripts/install-opencode-oca-auth.js ~/.config/opencode/opencode.json
-```
-
-### Development (live edits)
-
-`npm link` adds `opencode-oca-auth-install` and `opencode-oca-auth-uninstall` to your `PATH`:
-
-```bash
-git clone <this-repo>
-cd opencode-oca-auth
-npm link
-opencode-oca-auth-install ~/.config/opencode/opencode.json
 ```
 
 The installer adds:

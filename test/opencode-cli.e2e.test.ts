@@ -62,13 +62,13 @@ test("OpenCode loads the plugin in an isolated config and lists OCA models", () 
 
     const installedConfig = readFileSync(configPath, "utf8")
     expect(installedConfig).toContain('"oca"')
-    expect(installedConfig).toContain('"gpt-5.3-codex"')
+    expect(installedConfig).toContain('"gpt-5.4"')
 
     const resolvedConfig = run("opencode", ["debug", "config"], env)
     expect(resolvedConfig).toContain('"oca"')
 
     const models = run("opencode", ["models", "oca"], env)
-    expect(models).toContain("oca/gpt-5.3-codex")
+    expect(models).toContain("oca/gpt-5.4")
   } finally {
     rmSync(tempRoot, { recursive: true, force: true })
   }
@@ -120,7 +120,7 @@ test("OpenCode loads the packed plugin artifact and lists OCA models", () => {
     expect(resolvedConfig).toContain(packedPluginPath)
 
     const models = run("opencode", ["models", "oca"], env)
-    expect(models).toContain("oca/gpt-5.3-codex")
+    expect(models).toContain("oca/gpt-5.4")
   } finally {
     rmSync(tempRoot, { recursive: true, force: true })
   }

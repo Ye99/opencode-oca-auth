@@ -46,8 +46,8 @@ This is a standalone OpenCode plugin that provides OCA (Oracle Code Assist) auth
 ### Scripts
 
 - **`scripts/utils.js`** — Shared helpers (`isObject`, `clone`, `toObject`) used by both install and uninstall scripts.
-- **`scripts/install-opencode-oca-auth.js`** — Reads an OpenCode JSON config, inserts this package as a plugin entry (using its `file://` URL as the plugin ID when run locally), and adds `provider.oca.models["gpt-5.3-codex"]`. Handles both `plugin`/`provider` (modern) and `plugins`/`providers` (legacy) config key variants. Also handles array-style model lists.
-- **`scripts/uninstall-opencode-oca-auth.js`** — Inverse: removes the plugin entry and all known default OCA model IDs (`gpt-5.3-codex`, `gpt-5-codex`, `gpt-oss-120b`, `oca-default`).
+- **`scripts/install-opencode-oca-auth.js`** — Reads an OpenCode JSON config, inserts this package as a plugin entry (using its `file://` URL as the plugin ID when run locally), and adds `provider.oca.models["gpt-5.4"]`. Handles both `plugin`/`provider` (modern) and `plugins`/`providers` (legacy) config key variants. Also handles array-style model lists.
+- **`scripts/uninstall-opencode-oca-auth.js`** — Inverse: removes the plugin entry and all known default OCA model IDs (`gpt-5.4`, `gpt-5.3-codex`, `gpt-5-codex`, `gpt-oss-120b`, `oca-default`).
 
 ### Config fixtures
 

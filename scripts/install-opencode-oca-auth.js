@@ -13,7 +13,7 @@ const DEFAULT_CONFIG = join(homedir(), ".config", "opencode", "opencode.json")
 
 const PLUGIN = "opencode-oca-auth"
 
-export const DEFAULT_OCA_MODEL_ID = "gpt-5.3-codex"
+export const DEFAULT_OCA_MODEL_ID = "gpt-5.4"
 
 import { isObject, clone, toObject } from "./utils.js"
 

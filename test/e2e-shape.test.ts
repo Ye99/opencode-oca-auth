@@ -11,6 +11,7 @@ test("plugin auth provider matches installer modern config provider key", async 
   const hooks = await plugin({} as Parameters<typeof plugin>[0])
   const next = installConfig(modern)
 
+  expect(DEFAULT_OCA_MODEL_ID).toBe("gpt-5.4")
   expect(hooks.auth?.provider).toBe("oca")
   expect(next.provider?.oca).toBeDefined()
   expect(next.provider?.oca?.models?.[DEFAULT_OCA_MODEL_ID]).toBeDefined()

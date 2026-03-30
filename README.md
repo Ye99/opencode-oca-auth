@@ -32,7 +32,7 @@ Select an `oca/*` model and run prompts as usual.
 To confirm the default OCA model works after setup, run:
 
 ```bash
-opencode -m oca/gpt-5.3-codex run "Reply with: ok"
+opencode -m oca/gpt-5.4 run "Reply with: ok"
 ```
 
 Expected result: the model replies with `ok`.

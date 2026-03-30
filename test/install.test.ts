@@ -14,6 +14,7 @@ test("install adds plugin and oca model for modern config", () => {
   const plugins = (next.plugin ?? []) as string[]
   const models = (next.provider?.oca?.models ?? {}) as Record<string, unknown>
 
+  expect(DEFAULT_OCA_MODEL_ID).toBe("gpt-5.4")
   expect(plugins).toContain("opencode-oca-auth")
   expect(models[DEFAULT_OCA_MODEL_ID]).toBeDefined()
 })
@@ -34,12 +35,13 @@ test("install prefers explicit plugin path over legacy package id", () => {
   expect(plugins).not.toContain("opencode-oca-auth")
 })
 
-test("install adds stable codex default and not older defaults", () => {
+test("install adds gpt-5.4 as the default and not older defaults", () => {
   const next = installConfig(modern)
   const models = (next.provider?.oca?.models ?? {}) as Record<string, unknown>
 
-  expect(models["gpt-5.3-codex"]).toBeDefined()
-  expect(models["gpt-5.3-codex"]).toEqual({})
+  expect(models["gpt-5.4"]).toBeDefined()
+  expect(models["gpt-5.4"]).toEqual({})
+  expect(models["gpt-5.3-codex"]).toBeUndefined()
   expect(models["gpt-5-codex"]).toBeUndefined()
   expect(models["gpt-oss-120b"]).toBeUndefined()
 })
@@ -143,8 +145,9 @@ test("uninstall removes previous default model ids", () => {
     provider: {
       oca: {
         models: [
-          { id: "gpt-5.3-codex", name: "Current Default" },
-          { id: "gpt-5-codex", name: "Previous Default" },
+          { id: "gpt-5.4", name: "Current Default" },
+          { id: "gpt-5.3-codex", name: "Previous Default" },
+          { id: "gpt-5-codex", name: "Older Default" },
           { id: "gpt-oss-120b", name: "Legacy Default" },
           { id: "custom", name: "Custom" },
         ],
@@ -164,8 +167,9 @@ test("uninstall removes previous default model ids from object model maps", () =
     provider: {
       oca: {
         models: {
-          "gpt-5.3-codex": { name: "Current Default" },
-          "gpt-5-codex": { name: "Previous Default" },
+          "gpt-5.4": { name: "Current Default" },
+          "gpt-5.3-codex": { name: "Previous Default" },
+          "gpt-5-codex": { name: "Older Default" },
           "gpt-oss-120b": { name: "Legacy Default" },
           custom: { name: "Custom" },
         },
